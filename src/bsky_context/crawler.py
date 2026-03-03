@@ -23,6 +23,7 @@ async def crawl(
     max_nodes: int = 2000,
     max_depth: int | None = None,
     timeout: float = 300.0,
+    existing: ContextWeb | None = None,
     progress_callback: Callable[[int, int], None] | None = None,
 ) -> ContextWeb:
     """Crawl the full context web starting from a post URI.
@@ -33,12 +34,24 @@ async def crawl(
         max_nodes: Maximum number of posts to collect.
         max_depth: Maximum BFS hop distance from start post (None = unlimited).
         timeout: Maximum wall-clock seconds for the entire crawl.
+        existing: Optional existing ContextWeb to merge into. When provided,
+            the crawler skips getQuotes calls for posts whose quote_count
+            hasn't changed, saving API calls.
         progress_callback: Optional callable(node_count, edge_count).
     """
-    web = ContextWeb(
-        root_uri=start_uri,
-        crawled_at=datetime.now(timezone.utc).isoformat(),
-    )
+    # Snapshot old quote counts before we start updating them
+    old_quote_counts: dict[str, int] = {}
+    if existing is not None:
+        for uri, post in existing.nodes.items():
+            old_quote_counts[uri] = post.quote_count
+        web = existing
+        web.crawled_at = datetime.now(timezone.utc).isoformat()
+    else:
+        web = ContextWeb(
+            root_uri=start_uri,
+            crawled_at=datetime.now(timezone.utc).isoformat(),
+        )
+
     # BFS queue entries: (uri, depth)
     queue: deque[tuple[str, int]] = deque([(start_uri, 0)])
     visited_threads: set[str] = set()
@@ -64,7 +77,13 @@ async def crawl(
             if web.node_count >= max_nodes or time.monotonic() > deadline:
                 break
             visited_quotes.add(post_uri)
-            # Determine this post's depth for queueing its quoters
+
+            # Skip getQuotes if quote_count hasn't changed since last crawl
+            if post_uri in old_quote_counts:
+                current = web.nodes[post_uri].quote_count
+                if current == old_quote_counts[post_uri]:
+                    continue
+
             post_depth = _post_depth(web, post_uri, start_uri)
             await _fetch_quotes(client, post_uri, post_depth, web, queue, max_depth)
 
@@ -147,6 +166,13 @@ def _walk_thread_node(
     is_new = post.uri not in web.nodes
     if is_new:
         web.nodes[post.uri] = post
+    else:
+        # Update engagement counts on existing posts (these change over time)
+        existing = web.nodes[post.uri]
+        existing.like_count = post.like_count
+        existing.reply_count = post.reply_count
+        existing.repost_count = post.repost_count
+        existing.quote_count = post.quote_count
 
     # Reply edge: parent -> this post
     if post.reply_parent:

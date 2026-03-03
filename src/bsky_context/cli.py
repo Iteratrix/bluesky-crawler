@@ -25,10 +25,17 @@ def main():
               help="Maximum BFS hop distance from start post.")
 @click.option("--timeout", default=300.0, show_default=True,
               help="Maximum wall-clock seconds for the crawl.")
-def fetch(post_url: str, max_nodes: int, max_depth: int | None, timeout: float):
+@click.option("--fresh", is_flag=True, default=False,
+              help="Ignore any stored version and crawl from scratch.")
+def fetch(post_url: str, max_nodes: int, max_depth: int | None, timeout: float,
+          fresh: bool):
     """Crawl a Bluesky conversation graph starting from POST_URL.
 
     POST_URL can be an AT URI or a bsky.app URL.
+
+    If a previous crawl exists for this post, it is automatically loaded and
+    updated with new posts. Use --fresh to discard the stored version and
+    start over.
     """
     try:
         ref = PostRef.from_str(post_url)
@@ -39,12 +46,25 @@ def fetch(post_url: str, max_nodes: int, max_depth: int | None, timeout: float):
     async def _run():
         from bsky_context.auth import get_client
         from bsky_context.crawler import crawl
+        from bsky_context.storage import web_id
 
         try:
             client = await get_client()
         except RuntimeError as e:
             click.echo(f"Error: {e}", err=True)
             sys.exit(1)
+
+        # Auto-load existing web unless --fresh
+        existing = None
+        if not fresh:
+            try:
+                existing = load_web(web_id(ref.at_uri))
+                click.echo(
+                    f"  Updating existing web ({existing.node_count} posts)...",
+                    err=True,
+                )
+            except FileNotFoundError:
+                pass  # No existing web, fresh crawl
 
         def _progress(nodes: int, edges: int) -> None:
             click.echo(f"\r  Crawling... {nodes} posts, {edges} edges", nl=False, err=True)
@@ -55,6 +75,7 @@ def fetch(post_url: str, max_nodes: int, max_depth: int | None, timeout: float):
             max_nodes=max_nodes,
             max_depth=max_depth,
             timeout=timeout,
+            existing=existing,
             progress_callback=_progress,
         )
 

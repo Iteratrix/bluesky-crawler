@@ -62,7 +62,10 @@ bsky-context list
 bsky-context fetch <url> --max-nodes 500    # cap at 500 posts
 bsky-context fetch <url> --max-depth 3      # max 3 hops from start post
 bsky-context fetch <url> --timeout 120      # 2 minute time limit
+bsky-context fetch <url> --fresh            # discard stored version, crawl from scratch
 ```
+
+Re-running `fetch` on a previously crawled post automatically loads the existing web and merges in new posts. Posts whose quote count hasn't changed are skipped for quote-fetching, making updates fast.
 
 ## Claude Code skill
 
