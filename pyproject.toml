@@ -6,6 +6,7 @@ readme = "README.md"
 authors = [
     { name = "Iteratrix", email = "1823098+Iteratrix@users.noreply.github.com" }
 ]
+license = "MIT"
 requires-python = ">=3.12"
 dependencies = [
     "atproto>=0.0.55",
@@ -14,6 +15,10 @@ dependencies = [
 
 [project.scripts]
 bsky-context = "bsky_context.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Iteratrix/bsky-context"
+Repository = "https://github.com/Iteratrix/bsky-context"
 
 [build-system]
 requires = ["uv_build>=0.9.28,<0.10.0"]

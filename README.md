@@ -21,12 +21,12 @@ Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
 
 ```bash
 # Clone and install
-git clone https://github.com/YOUR_USER/bsky-context.git
+git clone https://github.com/Iteratrix/bsky-context.git
 cd bsky-context
 uv sync
 
 # Or install globally as a CLI tool
-uv tool install git+https://github.com/YOUR_USER/bsky-context.git
+uv tool install git+https://github.com/Iteratrix/bsky-context.git
 ```
 
 ## Setup
