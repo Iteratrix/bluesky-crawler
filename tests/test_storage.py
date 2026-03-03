@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from bsky_context.models import Author, ContextWeb, Post
+from bsky_context.models import Author, ContextWeb, Post, Thread
 from bsky_context.storage import list_webs, load_web, save_web, web_id
 
 
@@ -17,10 +17,15 @@ def tmp_data_dir(tmp_path):
 
 def _make_web(root_uri: str = "at://did:plc:test/app.bsky.feed.post/abc123") -> ContextWeb:
     web = ContextWeb(root_uri=root_uri, crawled_at="2026-01-01T00:00:00Z")
-    web.nodes[root_uri] = Post(
-        uri=root_uri, cid="cid1",
-        author=Author(did="did:plc:test", handle="test.bsky.social"),
-        text="Test post", created_at="2026-01-01T00:00:00Z",
+    web.threads[root_uri] = Thread(
+        root_uri=root_uri,
+        posts={
+            root_uri: Post(
+                uri=root_uri, cid="cid1",
+                author=Author(did="did:plc:test", handle="test.bsky.social"),
+                text="Test post", created_at="2026-01-01T00:00:00Z",
+            ),
+        },
     )
     return web
 
@@ -44,6 +49,7 @@ class TestSaveLoad:
         path = save_web(web)
         loaded = load_web(path.stem)
         assert loaded.node_count == 1
+        assert loaded.thread_count == 1
         assert loaded.root_uri == web.root_uri
 
     def test_load_by_prefix(self):
@@ -72,6 +78,7 @@ class TestListWebs:
         webs = list_webs()
         assert len(webs) == 1
         assert webs[0]["nodes"] == 1
+        assert webs[0]["threads"] == 1
 
     def test_multiple(self):
         save_web(_make_web("at://did:plc:a/app.bsky.feed.post/first"))

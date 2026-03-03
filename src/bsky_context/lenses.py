@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 
-from bsky_context.models import ContextWeb, Edge, EdgeType, Post
+from bsky_context.models import ContextWeb
 
 
 def render(web: ContextWeb, lens: str = "tree") -> str:
@@ -34,22 +34,31 @@ def render(web: ContextWeb, lens: str = "tree") -> str:
 
 def render_tree(web: ContextWeb) -> str:
     """Indented threaded view — DFS from root, replies and quotes nested."""
-    children: dict[str, list[tuple[str, EdgeType]]] = {}
-    for edge in web.edges:
-        children.setdefault(edge.source, []).append((edge.target, edge.type))
+    nodes = web.nodes
+    children: dict[str, list[tuple[str, str]]] = {}  # uri -> [(child_uri, "reply"|"quote")]
+
+    # Reply edges: from reply_parent within threads
+    for thread in web.threads.values():
+        for post in thread.posts.values():
+            if post.reply_parent:
+                children.setdefault(post.reply_parent, []).append((post.uri, "reply"))
+
+    # Quote edges
+    for qe in web.quote_edges:
+        children.setdefault(qe.source, []).append((qe.target, "quote"))
 
     root_uri = _find_tree_root(web)
     lines: list[str] = []
     visited: set[str] = set()
 
-    def _render(uri: str, depth: int, edge_type: EdgeType | None = None) -> None:
-        if uri in visited or uri not in web.nodes:
+    def _render(uri: str, depth: int, edge_type: str | None = None) -> None:
+        if uri in visited or uri not in nodes:
             return
         visited.add(uri)
-        post = web.nodes[uri]
+        post = nodes[uri]
         indent = "  " * depth
 
-        tag = f"[{edge_type.value}]" if edge_type else "[root]"
+        tag = f"[{edge_type}]" if edge_type else "[root]"
         name = f"@{post.author.handle}"
         if post.author.display_name:
             name = f"{post.author.display_name} (@{post.author.handle})"
@@ -72,8 +81,8 @@ def render_tree(web: ContextWeb) -> str:
         # Children: replies first (chronological), then quotes
         kids = children.get(uri, [])
         kids_sorted = sorted(kids, key=lambda x: (
-            0 if x[1] == EdgeType.REPLY else 1,
-            web.nodes[x[0]].created_at if x[0] in web.nodes else "",
+            0 if x[1] == "reply" else 1,
+            nodes[x[0]].created_at if x[0] in nodes else "",
         ))
         for child_uri, child_type in kids_sorted:
             _render(child_uri, depth + 1, child_type)
@@ -81,7 +90,7 @@ def render_tree(web: ContextWeb) -> str:
     _render(root_uri, 0)
 
     # Render any disconnected posts (not reachable from root)
-    for uri in web.nodes:
+    for uri in nodes:
         if uri not in visited:
             lines.append("---")
             _render(uri, 0)
@@ -91,10 +100,11 @@ def render_tree(web: ContextWeb) -> str:
 
 def _find_tree_root(web: ContextWeb) -> str:
     """Find the earliest ancestor in the web's node set."""
+    nodes = web.nodes
     uri = web.root_uri
-    while uri in web.nodes:
-        parent = web.nodes[uri].reply_parent
-        if parent and parent in web.nodes:
+    while uri in nodes:
+        parent = nodes[uri].reply_parent
+        if parent and parent in nodes:
             uri = parent
         else:
             break
@@ -107,7 +117,8 @@ def _find_tree_root(web: ContextWeb) -> str:
 
 def render_linear(web: ContextWeb) -> str:
     """Chronological narrative — each post numbered with context annotations."""
-    posts = sorted(web.nodes.values(), key=lambda p: p.created_at)
+    nodes = web.nodes
+    posts = sorted(nodes.values(), key=lambda p: p.created_at)
     total = len(posts)
     uri_to_idx: dict[str, int] = {p.uri: i + 1 for i, p in enumerate(posts)}
 
@@ -120,11 +131,11 @@ def render_linear(web: ContextWeb) -> str:
         # Context annotation
         ctx_parts: list[str] = []
         if post.reply_parent and post.reply_parent in uri_to_idx:
-            parent_post = web.nodes.get(post.reply_parent)
+            parent_post = nodes.get(post.reply_parent)
             parent_handle = f"@{parent_post.author.handle}" if parent_post else "?"
             ctx_parts.append(f"replying to {parent_handle} #{uri_to_idx[post.reply_parent]}")
         if post.embed_uri and post.embed_uri in uri_to_idx:
-            quoted_post = web.nodes.get(post.embed_uri)
+            quoted_post = nodes.get(post.embed_uri)
             quoted_handle = f"@{quoted_post.author.handle}" if quoted_post else "?"
             ctx_parts.append(f"quoting {quoted_handle} #{uri_to_idx[post.embed_uri]}")
 
@@ -144,9 +155,11 @@ def render_linear(web: ContextWeb) -> str:
 
 def render_by_author(web: ContextWeb) -> str:
     """Grouped by participant — shows each person's contributions."""
+    nodes = web.nodes
+
     # Group posts by author DID
-    by_author: dict[str, list[Post]] = {}
-    for post in web.nodes.values():
+    by_author: dict[str, list] = {}
+    for post in nodes.values():
         by_author.setdefault(post.author.did, []).append(post)
 
     # Sort each author's posts chronologically
@@ -154,7 +167,7 @@ def render_by_author(web: ContextWeb) -> str:
         posts.sort(key=lambda p: p.created_at)
 
     # Build URI index for cross-references
-    all_posts = sorted(web.nodes.values(), key=lambda p: p.created_at)
+    all_posts = sorted(nodes.values(), key=lambda p: p.created_at)
     uri_to_idx: dict[str, int] = {p.uri: i + 1 for i, p in enumerate(all_posts)}
 
     # Sort authors by their first post time
@@ -163,14 +176,11 @@ def render_by_author(web: ContextWeb) -> str:
     # Determine root author
     root_did = None
     root_uri = _find_tree_root(web)
-    if root_uri in web.nodes:
-        root_did = web.nodes[root_uri].author.did
+    if root_uri in nodes:
+        root_did = nodes[root_uri].author.did
 
     # Has quotes?
-    quote_targets: set[str] = set()
-    for edge in web.edges:
-        if edge.type == EdgeType.QUOTE:
-            quote_targets.add(edge.target)
+    quote_targets: set[str] = {qe.target for qe in web.quote_edges}
 
     lines: list[str] = []
     lines.append(f"=== PARTICIPANTS ({len(author_order)}) ===")
@@ -197,11 +207,11 @@ def render_by_author(web: ContextWeb) -> str:
 
         for j, post in enumerate(posts, 1):
             ctx_parts: list[str] = []
-            if post.reply_parent and post.reply_parent in web.nodes:
-                parent = web.nodes[post.reply_parent]
+            if post.reply_parent and post.reply_parent in nodes:
+                parent = nodes[post.reply_parent]
                 ctx_parts.append(f"replying to @{parent.author.handle}")
-            if post.embed_uri and post.embed_uri in web.nodes:
-                quoted = web.nodes[post.embed_uri]
+            if post.embed_uri and post.embed_uri in nodes:
+                quoted = nodes[post.embed_uri]
                 ctx_parts.append(f"quoting @{quoted.author.handle}")
             ctx = f"  [{', '.join(ctx_parts)}]" if ctx_parts else ""
 

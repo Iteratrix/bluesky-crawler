@@ -1,47 +1,73 @@
 """Tests for lens renderers."""
 
 from bsky_context.lenses import render
-from bsky_context.models import Author, ContextWeb, Edge, EdgeType, Post
+from bsky_context.models import Author, ContextWeb, Post, QuoteEdge, Thread
 
 
 def _build_test_web() -> ContextWeb:
-    """Build a small graph: root -> reply, root -> quote -> reply-to-quote."""
+    """Build a small graph: root -> reply, root -> quote -> reply-to-quote.
+
+    Thread 1: Alice's root post + Bob's direct reply
+    Thread 2: Carol's quote post + Bob's reply to the quote
+    """
     web = ContextWeb(
         root_uri="at://did:plc:a/app.bsky.feed.post/1",
         crawled_at="2026-01-01T00:00:00Z",
     )
-    web.nodes["at://did:plc:a/app.bsky.feed.post/1"] = Post(
-        uri="at://did:plc:a/app.bsky.feed.post/1", cid="c1",
-        author=Author(did="did:plc:a", handle="alice.bsky.social", display_name="Alice"),
-        text="Original post", created_at="2026-01-15T10:00:00Z",
-        like_count=10,
+
+    # Thread 1
+    thread1 = Thread(
+        root_uri="at://did:plc:a/app.bsky.feed.post/1",
+        posts={
+            "at://did:plc:a/app.bsky.feed.post/1": Post(
+                uri="at://did:plc:a/app.bsky.feed.post/1", cid="c1",
+                author=Author(did="did:plc:a", handle="alice.bsky.social", display_name="Alice"),
+                text="Original post", created_at="2026-01-15T10:00:00Z",
+                like_count=10,
+            ),
+            "at://did:plc:b/app.bsky.feed.post/2": Post(
+                uri="at://did:plc:b/app.bsky.feed.post/2", cid="c2",
+                author=Author(did="did:plc:b", handle="bob.bsky.social", display_name="Bob"),
+                text="Direct reply", created_at="2026-01-15T10:05:00Z",
+                reply_parent="at://did:plc:a/app.bsky.feed.post/1",
+                reply_root="at://did:plc:a/app.bsky.feed.post/1",
+            ),
+        },
     )
-    web.nodes["at://did:plc:b/app.bsky.feed.post/2"] = Post(
-        uri="at://did:plc:b/app.bsky.feed.post/2", cid="c2",
-        author=Author(did="did:plc:b", handle="bob.bsky.social", display_name="Bob"),
-        text="Direct reply", created_at="2026-01-15T10:05:00Z",
-        reply_parent="at://did:plc:a/app.bsky.feed.post/1",
-        reply_root="at://did:plc:a/app.bsky.feed.post/1",
+
+    # Thread 2
+    thread2 = Thread(
+        root_uri="at://did:plc:c/app.bsky.feed.post/3",
+        posts={
+            "at://did:plc:c/app.bsky.feed.post/3": Post(
+                uri="at://did:plc:c/app.bsky.feed.post/3", cid="c3",
+                author=Author(did="did:plc:c", handle="carol.bsky.social"),
+                text="Quote post", created_at="2026-01-15T10:08:00Z",
+                embed_uri="at://did:plc:a/app.bsky.feed.post/1",
+                embed_type="app.bsky.embed.record",
+            ),
+            "at://did:plc:b/app.bsky.feed.post/4": Post(
+                uri="at://did:plc:b/app.bsky.feed.post/4", cid="c4",
+                author=Author(did="did:plc:b", handle="bob.bsky.social", display_name="Bob"),
+                text="Reply to quote", created_at="2026-01-15T10:12:00Z",
+                reply_parent="at://did:plc:c/app.bsky.feed.post/3",
+                reply_root="at://did:plc:c/app.bsky.feed.post/3",
+            ),
+        },
     )
-    web.nodes["at://did:plc:c/app.bsky.feed.post/3"] = Post(
-        uri="at://did:plc:c/app.bsky.feed.post/3", cid="c3",
-        author=Author(did="did:plc:c", handle="carol.bsky.social"),
-        text="Quote post", created_at="2026-01-15T10:08:00Z",
-        embed_uri="at://did:plc:a/app.bsky.feed.post/1",
-        embed_type="app.bsky.embed.record",
-    )
-    web.nodes["at://did:plc:b/app.bsky.feed.post/4"] = Post(
-        uri="at://did:plc:b/app.bsky.feed.post/4", cid="c4",
-        author=Author(did="did:plc:b", handle="bob.bsky.social", display_name="Bob"),
-        text="Reply to quote", created_at="2026-01-15T10:12:00Z",
-        reply_parent="at://did:plc:c/app.bsky.feed.post/3",
-        reply_root="at://did:plc:c/app.bsky.feed.post/3",
-    )
-    web.edges = [
-        Edge(source="at://did:plc:a/app.bsky.feed.post/1", target="at://did:plc:b/app.bsky.feed.post/2", type=EdgeType.REPLY),
-        Edge(source="at://did:plc:a/app.bsky.feed.post/1", target="at://did:plc:c/app.bsky.feed.post/3", type=EdgeType.QUOTE),
-        Edge(source="at://did:plc:c/app.bsky.feed.post/3", target="at://did:plc:b/app.bsky.feed.post/4", type=EdgeType.REPLY),
+
+    web.threads[thread1.root_uri] = thread1
+    web.threads[thread2.root_uri] = thread2
+
+    web.quote_edges = [
+        QuoteEdge(
+            source="at://did:plc:a/app.bsky.feed.post/1",
+            target="at://did:plc:c/app.bsky.feed.post/3",
+            source_thread="at://did:plc:a/app.bsky.feed.post/1",
+            target_thread="at://did:plc:c/app.bsky.feed.post/3",
+        ),
     ]
+
     return web
 
 
@@ -115,8 +141,8 @@ class TestRawLens:
         out = render(_build_test_web(), "raw")
         data = json.loads(out)
         assert "meta" in data
-        assert "nodes" in data
-        assert "edges" in data
+        assert "threads" in data
+        assert "quote_edges" in data
 
 
 class TestInvalidLens:

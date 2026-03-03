@@ -11,11 +11,11 @@ Bluesky Context Web crawler — fetches the full DAG of replies + quote posts fo
 
 ## Architecture
 
-**Storage/Lens Split**: Canonical JSON graph stored in `~/.local/share/bsky-context/webs/`, rendered through lenses (tree, linear, by-author, raw) on demand.
+**Thread Web**: Conversations are modeled as a collection of threads (reply trees) linked by quote edges. Each thread is the atomic crawl unit (one `getPostThread` call). Stored as JSON in `~/.local/share/bsky-context/webs/`, rendered through lenses (tree, linear, by-author, raw) on demand.
 
 Key modules:
-- `crawler.py` — async BFS over getPostThread + getQuotes
-- `models.py` — Post, Edge, ContextWeb dataclasses
+- `crawler.py` — thread-level BFS over getPostThread + getQuotes, with thread dedup
+- `models.py` — Post, Thread, QuoteEdge, ContextWeb dataclasses
 - `lenses.py` — four view renderers
 - `cli.py` — Click CLI entry point
 - `auth.py` — credential + session management

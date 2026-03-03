@@ -66,5 +66,6 @@ def list_webs() -> list[dict]:
             "crawled_at": meta.get("crawled_at", "?"),
             "nodes": meta.get("node_count", 0),
             "edges": meta.get("edge_count", 0),
+            "threads": meta.get("thread_count", 0),
         })
     return result

@@ -3,13 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import Any
-
-
-class EdgeType(str, Enum):
-    REPLY = "reply"
-    QUOTE = "quote"
 
 
 @dataclass
@@ -98,76 +92,132 @@ class Post:
 
 
 @dataclass
-class Edge:
-    source: str  # URI
-    target: str  # URI
-    type: EdgeType
+class Thread:
+    """A reply tree rooted at one post — the atomic crawl unit."""
+
+    root_uri: str
+    posts: dict[str, Post] = field(default_factory=dict)  # URI -> Post
+
+    @property
+    def post_count(self) -> int:
+        return len(self.posts)
+
+    @property
+    def root_post(self) -> Post | None:
+        return self.posts.get(self.root_uri)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "root_uri": self.root_uri,
+            "posts": {uri: p.to_dict() for uri, p in self.posts.items()},
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> Thread:
+        thread = cls(root_uri=d["root_uri"])
+        for uri, pd in d["posts"].items():
+            thread.posts[uri] = Post.from_dict(pd)
+        return thread
+
+
+@dataclass
+class QuoteEdge:
+    """A quote relationship between posts, possibly across threads."""
+
+    source: str  # URI of the quoted post
+    target: str  # URI of the quoting post
+    source_thread: str  # thread root URI containing the source
+    target_thread: str  # thread root URI containing the target
 
     def to_dict(self) -> dict[str, str]:
         return {
             "source": self.source,
             "target": self.target,
-            "type": self.type.value,
+            "source_thread": self.source_thread,
+            "target_thread": self.target_thread,
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, str]) -> Edge:
+    def from_dict(cls, d: dict[str, str]) -> QuoteEdge:
         return cls(
             source=d["source"],
             target=d["target"],
-            type=EdgeType(d["type"]),
+            source_thread=d["source_thread"],
+            target_thread=d["target_thread"],
         )
 
 
 @dataclass
 class ContextWeb:
-    """The complete crawled context graph."""
+    """The complete crawled context graph — threads linked by quotes."""
 
     root_uri: str
     crawled_at: str  # ISO 8601
-    nodes: dict[str, Post] = field(default_factory=dict)  # URI -> Post
-    edges: list[Edge] = field(default_factory=list)
+    threads: dict[str, Thread] = field(default_factory=dict)  # root URI -> Thread
+    quote_edges: list[QuoteEdge] = field(default_factory=list)
 
     @property
     def node_count(self) -> int:
-        return len(self.nodes)
+        return sum(t.post_count for t in self.threads.values())
 
     @property
     def edge_count(self) -> int:
-        return len(self.edges)
+        reply_edges = sum(
+            sum(1 for p in t.posts.values() if p.reply_parent)
+            for t in self.threads.values()
+        )
+        return reply_edges + len(self.quote_edges)
 
-    def deduplicate_edges(self) -> None:
-        seen: set[tuple[str, str, str]] = set()
-        unique: list[Edge] = []
-        for edge in self.edges:
-            key = (edge.source, edge.target, edge.type.value)
+    @property
+    def thread_count(self) -> int:
+        return len(self.threads)
+
+    @property
+    def nodes(self) -> dict[str, Post]:
+        """Flat view of all posts across all threads."""
+        result: dict[str, Post] = {}
+        for thread in self.threads.values():
+            result.update(thread.posts)
+        return result
+
+    def thread_for_post(self, uri: str) -> Thread | None:
+        """Find which thread contains a given post URI."""
+        for thread in self.threads.values():
+            if uri in thread.posts:
+                return thread
+        return None
+
+    def deduplicate_quote_edges(self) -> None:
+        seen: set[tuple[str, str]] = set()
+        unique: list[QuoteEdge] = []
+        for qe in self.quote_edges:
+            key = (qe.source, qe.target)
             if key not in seen:
                 seen.add(key)
-                unique.append(edge)
-        self.edges = unique
+                unique.append(qe)
+        self.quote_edges = unique
 
     def to_dict(self) -> dict[str, Any]:
-        self.deduplicate_edges()
+        self.deduplicate_quote_edges()
         return {
             "meta": {
+                "format_version": 2,
                 "root_uri": self.root_uri,
                 "crawled_at": self.crawled_at,
                 "node_count": self.node_count,
                 "edge_count": self.edge_count,
+                "thread_count": self.thread_count,
             },
-            "nodes": {uri: post.to_dict() for uri, post in self.nodes.items()},
-            "edges": [e.to_dict() for e in self.edges],
+            "threads": {uri: t.to_dict() for uri, t in self.threads.items()},
+            "quote_edges": [qe.to_dict() for qe in self.quote_edges],
         }
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> ContextWeb:
         meta = d["meta"]
-        web = cls(
-            root_uri=meta["root_uri"],
-            crawled_at=meta["crawled_at"],
-        )
-        for uri, post_data in d["nodes"].items():
-            web.nodes[uri] = Post.from_dict(post_data)
-        for edge_data in d["edges"]:
-            web.edges.append(Edge.from_dict(edge_data))
+        web = cls(root_uri=meta["root_uri"], crawled_at=meta["crawled_at"])
+        for uri, td in d["threads"].items():
+            web.threads[uri] = Thread.from_dict(td)
+        for qed in d.get("quote_edges", []):
+            web.quote_edges.append(QuoteEdge.from_dict(qed))
         return web

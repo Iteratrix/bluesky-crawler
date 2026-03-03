@@ -46,7 +46,6 @@ def fetch(post_url: str, max_nodes: int, max_depth: int | None, timeout: float,
     async def _run():
         from bsky_context.auth import get_client
         from bsky_context.crawler import crawl
-        from bsky_context.storage import web_id
 
         try:
             client = await get_client()
@@ -58,7 +57,7 @@ def fetch(post_url: str, max_nodes: int, max_depth: int | None, timeout: float,
         existing = None
         if not fresh:
             try:
-                existing = load_web(web_id(ref.at_uri))
+                existing = load_web(ref.rkey)
                 click.echo(
                     f"  Updating existing web ({existing.node_count} posts)...",
                     err=True,
@@ -82,7 +81,7 @@ def fetch(post_url: str, max_nodes: int, max_depth: int | None, timeout: float,
         path = save_web(web)
         click.echo("", err=True)  # newline after progress
         click.echo(f"  Saved: {path.stem}", err=True)
-        click.echo(f"  {web.node_count} posts, {web.edge_count} edges", err=True)
+        click.echo(f"  {web.node_count} posts, {web.edge_count} edges, {web.thread_count} threads", err=True)
         # Machine-consumable output: just the web ID
         click.echo(path.stem)
 
@@ -116,7 +115,7 @@ def list_cmd():
         click.echo("No stored context webs.", err=True)
         return
     for w in webs:
-        click.echo(f"{w['id']}  {w['nodes']} posts  {w['crawled_at']}")
+        click.echo(f"{w['id']}  {w['nodes']} posts  {w.get('threads', '?')} threads  {w['crawled_at']}")
         click.echo(f"  {w['root_uri']}")
 
 
