@@ -1,0 +1,26 @@
+[project]
+name = "bsky-context"
+version = "0.1.0"
+description = "Crawl Bluesky conversation graphs and store them locally for LLM reasoning"
+readme = "README.md"
+authors = [
+    { name = "Iteratrix", email = "1823098+Iteratrix@users.noreply.github.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "atproto>=0.0.55",
+    "click>=8.1",
+]
+
+[project.scripts]
+bsky-context = "bsky_context.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.9.28,<0.10.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-asyncio>=1.3.0",
+]
