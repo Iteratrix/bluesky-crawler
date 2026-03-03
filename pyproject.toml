@@ -24,6 +24,9 @@ Repository = "https://github.com/Iteratrix/bsky-context"
 requires = ["uv_build>=0.9.28,<0.10.0"]
 build-backend = "uv_build"
 
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",
