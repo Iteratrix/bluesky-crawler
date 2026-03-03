@@ -72,4 +72,4 @@ bsky-context list
 3. Read the tree view: `bsky-context show <id>`
 4. If analyzing a debate, switch lens: `bsky-context show <id> -l by-author`
 5. Summarize or answer questions about the conversation
-6. If the conversation is ongoing, refresh later: `bsky-context fetch "<url>" --refresh`
+6. If the conversation is ongoing, just re-run: `bsky-context fetch "<url>"` (auto-updates)

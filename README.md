@@ -87,11 +87,11 @@ Then Claude Code can fetch and analyze Bluesky conversations mid-conversation â€
 4. **Store** the complete graph as JSON in `~/.local/share/bsky-context/webs/`
 5. **Render** through lenses on demand
 
-The crawl is a BFS over two edge types (reply and quote), with deduplication, rate-limit backoff, and configurable depth/breadth/timeout limits.
+The crawl is a thread-level BFS: each thread (reply tree) is the atomic unit, fetched in one API call, and quotes are the inter-thread links that drive further exploration. Thread-level deduplication means if two quote posts point into the same thread, it's only fetched once. Rate-limit backoff and configurable depth/breadth/timeout limits keep things under control.
 
 ## Storage
 
-Crawled conversations are stored as JSON files in `~/.local/share/bsky-context/webs/`. Each file contains the full graph: nodes (posts with metadata) and edges (reply/quote relationships). The format is stable and human-readable.
+Crawled conversations are stored as JSON files in `~/.local/share/bsky-context/webs/`. Each file contains the full graph: threads (reply trees keyed by root URI) and quote edges (cross-thread links). The format is stable and human-readable.
 
 ## Prior art
 
