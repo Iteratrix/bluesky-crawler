@@ -13,6 +13,12 @@ Bluesky conversations aren't threads — they're **Context Webs**. A post gets r
 | `tree` | Understanding conversation flow | Indented threaded view |
 | `linear` | Summarizing a discussion | Chronological narrative with cross-references |
 | `by-author` | Analyzing a debate | Posts grouped by participant |
+| `stats` | Quick overview of a large web | Post/thread counts, top authors, engagement, depth distribution |
+| `threads` | Finding interesting sub-conversations | Thread listing sorted by size |
+| `highlights` | Identifying key posts and people | Most quoted, most replied, highest engagement |
+| `neighborhood` | Focusing on nearby context | Posts within N quote-hops of a target post |
+| `timeline` | Seeing how a conversation evolved | Time-windowed chronological view |
+| `search` | Finding specific content or authors | Filtered results with thread context |
 | `raw` | Programmatic use | Full JSON graph |
 
 ## Install
@@ -50,7 +56,20 @@ bsky-context fetch "https://bsky.app/profile/alice.bsky.social/post/abc123"
 bsky-context show <web-id>                  # threaded view (default)
 bsky-context show <web-id> -l linear        # chronological narrative
 bsky-context show <web-id> -l by-author     # grouped by participant
+bsky-context show <web-id> -l stats         # summary statistics
+bsky-context show <web-id> -l threads       # thread listing by size
+bsky-context show <web-id> -l highlights    # notable posts and authors
 bsky-context show <web-id> -l raw           # JSON graph
+
+# Focus on nearby context (N quote-hops)
+bsky-context show <web-id> -l neighborhood --hops 1
+
+# Filter by time window
+bsky-context show <web-id> -l timeline --after "2026-03-01T00:00:00"
+
+# Search for content or authors
+bsky-context show <web-id> -l search -q "some topic"
+bsky-context show <web-id> -l search --author "alice"
 
 # List cached conversations
 bsky-context list

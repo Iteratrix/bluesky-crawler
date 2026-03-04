@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -211,6 +212,11 @@ class ContextWeb:
         for thread in self.threads.values():
             result.update(thread.posts)
         return result
+
+    def iter_posts(self) -> Iterator[Post]:
+        """Iterate all posts without building an intermediate dict."""
+        for thread in self.threads.values():
+            yield from thread.posts.values()
 
     def has_post(self, uri: str) -> bool:
         """O(1) check if a post URI exists in any thread."""

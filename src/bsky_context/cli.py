@@ -102,9 +102,25 @@ def fetch(post_url: str, max_nodes: int, max_depth: int | None, timeout: float,
 @main.command()
 @click.argument("web_id")
 @click.option("--lens", "-l", default="tree",
-              type=click.Choice(["tree", "linear", "by-author", "raw"]),
+              type=click.Choice(["tree", "linear", "by-author", "raw",
+                                 "stats", "threads", "highlights",
+                                 "neighborhood", "timeline", "search"]),
               help="View to render.")
-def show(web_id: str, lens: str):
+@click.option("--hops", default=None, type=int,
+              help="Quote-chain hops (neighborhood lens).")
+@click.option("--uri", default=None,
+              help="Target post URI (neighborhood lens).")
+@click.option("--after", default=None,
+              help="Show posts after this ISO timestamp (timeline lens).")
+@click.option("--before", default=None,
+              help="Show posts before this ISO timestamp (timeline lens).")
+@click.option("--query", "-q", default=None,
+              help="Text search query (search lens).")
+@click.option("--author", default=None,
+              help="Filter by author handle (search lens).")
+@click.option("--top", "-n", default=None, type=int,
+              help="Number of results (threads/highlights lens).")
+def show(web_id: str, lens: str, **kwargs):
     """Render a stored context web through a lens.
 
     WEB_ID is the identifier printed by 'fetch', or a unique prefix.
@@ -115,7 +131,8 @@ def show(web_id: str, lens: str):
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
-    click.echo(render(web, lens))
+    params = {k: v for k, v in kwargs.items() if v is not None}
+    click.echo(render(web, lens, **params))
 
 
 @main.command(name="list")

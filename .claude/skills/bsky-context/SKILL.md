@@ -57,7 +57,36 @@ Choose the lens based on your reasoning task:
 | `tree` (default) | Understanding conversation flow, who replied to whom | Indented threaded view with `[reply]`/`[quote]` tags |
 | `linear` | Summarizing, understanding how discussion evolved over time | Chronological posts numbered `[1/N]` with cross-references |
 | `by-author` | Analyzing each person's position, understanding a debate | Posts grouped by participant with context annotations |
+| `stats` | Quick overview of a large web before diving in | Post/thread/edge counts, top authors, engagement rankings, depth distribution |
+| `threads` | Finding interesting sub-conversations in a large web | Thread listing sorted by size with root post preview |
+| `highlights` | Identifying key posts and people | Most quoted, most replied, highest engagement, main characters |
+| `neighborhood` | Focusing on context near a specific post | Posts within N quote-hops of a target post (tree-style) |
+| `timeline` | Seeing what happened in a specific time window | Time-filtered chronological view |
+| `search` | Finding posts about a topic or by a specific person | Filtered results with thread context |
 | `raw` | Programmatic analysis, counting, or when text views are insufficient | Full JSON graph with all metadata |
+
+### Lens parameters
+
+Some lenses accept additional options:
+
+```bash
+# Neighborhood: focus on N hops around a post
+bsky-context show <id> -l neighborhood --hops 1
+bsky-context show <id> -l neighborhood --hops 2 --uri "at://did:plc:.../post/..."
+
+# Timeline: filter by time window
+bsky-context show <id> -l timeline --after "2026-03-01T00:00:00"
+bsky-context show <id> -l timeline --before "2026-03-02T00:00:00"
+
+# Search: filter by text and/or author
+bsky-context show <id> -l search -q "some topic"
+bsky-context show <id> -l search --author "alice"
+bsky-context show <id> -l search -q "AI" --author "simonwillison"
+
+# Threads/highlights: control how many results
+bsky-context show <id> -l threads -n 10
+bsky-context show <id> -l highlights -n 5
+```
 
 ## Listing cached conversations
 
@@ -69,7 +98,8 @@ bsky-context list
 
 1. User shares a Bluesky URL
 2. Fetch: `bsky-context fetch "https://bsky.app/profile/alice.bsky.social/post/xyz"`
-3. Read the tree view: `bsky-context show <id>`
-4. If analyzing a debate, switch lens: `bsky-context show <id> -l by-author`
-5. Summarize or answer questions about the conversation
-6. If the conversation is ongoing, just re-run: `bsky-context fetch "<url>"` (auto-updates)
+3. Start with stats for an overview: `bsky-context show <id> -l stats`
+4. For large webs, use neighborhood to focus: `bsky-context show <id> -l neighborhood --hops 1`
+5. Search for specific topics or people: `bsky-context show <id> -l search -q "topic"`
+6. Switch lens as needed: `tree` for flow, `by-author` for debate analysis, `highlights` for key posts
+7. If the conversation is ongoing, just re-run: `bsky-context fetch "<url>"` (auto-updates)
