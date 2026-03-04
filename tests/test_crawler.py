@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from bsky_context.crawler import _retry, crawl
-from bsky_context.models import Author, ContextWeb, Post, Thread
+from bsky_context.models import Author, ContextWeb, Post, QuoteEdge, Thread
 
 from conftest import (
     MockClient,
@@ -358,12 +358,12 @@ class TestCrawlerMechanics:
         assert web.node_count >= 3
 
     async def test_smart_refetch_skips_unchanged_quotes(self):
-        """B4: Existing web with same quote_count → getQuotes skipped."""
+        """B4: Existing web with edges matching quote_count → getQuotes skipped."""
         existing = ContextWeb(
             root_uri=at_uri("alice", "1"),
             crawled_at="2026-01-01T00:00:00Z",
         )
-        existing.threads[at_uri("alice", "1")] = Thread(
+        existing.add_thread(Thread(
             root_uri=at_uri("alice", "1"),
             posts={
                 at_uri("alice", "1"): Post(
@@ -372,13 +372,20 @@ class TestCrawlerMechanics:
                     author=Author(did="did:plc:alice", handle="alice.bsky.social"),
                     text="hi",
                     created_at="2026-01-01T00:00:00Z",
-                    quote_count=5,
+                    quote_count=1,
                 )
             },
-        )
+        ))
+        # Existing edge proves we already checked quotes for alice/1
+        existing.quote_edges.append(QuoteEdge(
+            source=at_uri("alice", "1"),
+            target=at_uri("prev", "99"),
+            source_thread=at_uri("alice", "1"),
+            target_thread=at_uri("prev", "99"),
+        ))
 
-        # API returns same quote_count=5
-        a = make_post_view("alice", "1", quote_count=5)
+        # API returns same quote_count=1
+        a = make_post_view("alice", "1", quote_count=1)
         client = MockClient()
         client.add_thread(at_uri("alice", "1"), make_thread_view(a))
         # Register quotes that should NOT be fetched
@@ -387,15 +394,14 @@ class TestCrawlerMechanics:
         web = await crawl(client, at_uri("alice", "1"), existing=existing)
 
         assert client.call_uris("get_quotes") == []
-        assert web.node_count == 1  # only A, no quotes fetched
 
     async def test_smart_refetch_fetches_new_quotes(self):
-        """B5: Existing web with lower quote_count → getQuotes IS called."""
+        """B5: Existing web with fewer edges than quote_count → getQuotes IS called."""
         existing = ContextWeb(
             root_uri=at_uri("alice", "1"),
             crawled_at="2026-01-01T00:00:00Z",
         )
-        existing.threads[at_uri("alice", "1")] = Thread(
+        existing.add_thread(Thread(
             root_uri=at_uri("alice", "1"),
             posts={
                 at_uri("alice", "1"): Post(
@@ -407,10 +413,168 @@ class TestCrawlerMechanics:
                     quote_count=2,  # old count
                 )
             },
-        )
+        ))
+        # 2 existing edges from previous crawl
+        for i in range(2):
+            existing.quote_edges.append(QuoteEdge(
+                source=at_uri("alice", "1"),
+                target=at_uri("prev", str(i)),
+                source_thread=at_uri("alice", "1"),
+                target_thread=at_uri("prev", str(i)),
+            ))
 
         # API returns higher quote_count=5
         a = make_post_view("alice", "1", quote_count=5)
+        b = make_post_view("bob", "2", embed_uri=at_uri("alice", "1"), quote_count=0)
+        client = MockClient()
+        client.add_thread(at_uri("alice", "1"), make_thread_view(a))
+        client.add_thread(at_uri("bob", "2"), make_thread_view(b))
+        client.add_quotes(at_uri("alice", "1"), [b])
+
+        web = await crawl(client, at_uri("alice", "1"), existing=existing)
+
+        assert at_uri("alice", "1") in client.call_uris("get_quotes")
+        assert web.node_count == 2
+
+    async def test_smart_refetch_no_edges_means_unexplored(self):
+        """B5b: Existing post with quote_count>0 but no edges → getQuotes called.
+
+        This is the timeout-then-resume case: a post was discovered but its
+        quotes were never followed because the crawl timed out.
+        """
+        existing = ContextWeb(
+            root_uri=at_uri("alice", "1"),
+            crawled_at="2026-01-01T00:00:00Z",
+        )
+        existing.add_thread(Thread(
+            root_uri=at_uri("alice", "1"),
+            posts={
+                at_uri("alice", "1"): Post(
+                    uri=at_uri("alice", "1"),
+                    cid="cid-alice-1",
+                    author=Author(did="did:plc:alice", handle="alice.bsky.social"),
+                    text="hi",
+                    created_at="2026-01-01T00:00:00Z",
+                    quote_count=3,  # discovered but never explored
+                )
+            },
+        ))
+        # No quote_edges — simulates a timeout before getQuotes was called
+
+        # API returns same quote_count=3
+        a = make_post_view("alice", "1", quote_count=3)
+        b = make_post_view("bob", "2", embed_uri=at_uri("alice", "1"), quote_count=0)
+        client = MockClient()
+        client.add_thread(at_uri("alice", "1"), make_thread_view(a))
+        client.add_thread(at_uri("bob", "2"), make_thread_view(b))
+        client.add_quotes(at_uri("alice", "1"), [b])
+
+        web = await crawl(client, at_uri("alice", "1"), existing=existing)
+
+        # getQuotes MUST be called — no edges means we never checked
+        assert at_uri("alice", "1") in client.call_uris("get_quotes")
+        assert web.node_count == 2
+
+    async def test_smart_refetch_mixed_explored_and_unexplored(self):
+        """B5c: Two posts — one with edges (explored), one without (unexplored).
+
+        Only the unexplored post should trigger getQuotes.
+        """
+        existing = ContextWeb(
+            root_uri=at_uri("alice", "1"),
+            crawled_at="2026-01-01T00:00:00Z",
+        )
+        existing.add_thread(Thread(
+            root_uri=at_uri("alice", "1"),
+            posts={
+                at_uri("alice", "1"): Post(
+                    uri=at_uri("alice", "1"),
+                    cid="cid-alice-1",
+                    author=Author(did="did:plc:alice", handle="alice.bsky.social"),
+                    text="root",
+                    created_at="2026-01-01T00:00:00Z",
+                    quote_count=1,  # explored — has edge below
+                ),
+                at_uri("alice", "5"): Post(
+                    uri=at_uri("alice", "5"),
+                    cid="cid-alice-5",
+                    author=Author(did="did:plc:alice", handle="alice.bsky.social"),
+                    text="reply",
+                    created_at="2026-01-01T00:01:00Z",
+                    reply_parent=at_uri("alice", "1"),
+                    reply_root=at_uri("alice", "1"),
+                    quote_count=2,  # NOT explored — timed out
+                ),
+            },
+        ))
+        # Edge for alice/1 — proves it was explored
+        existing.quote_edges.append(QuoteEdge(
+            source=at_uri("alice", "1"),
+            target=at_uri("prev", "99"),
+            source_thread=at_uri("alice", "1"),
+            target_thread=at_uri("prev", "99"),
+        ))
+        # No edges for alice/5 — never explored
+
+        # API returns same quote counts
+        a = make_post_view("alice", "1", quote_count=1)
+        a5 = make_post_view(
+            "alice", "5",
+            reply_parent=at_uri("alice", "1"),
+            reply_root=at_uri("alice", "1"),
+            quote_count=2,
+        )
+        b = make_post_view("bob", "2", embed_uri=at_uri("alice", "5"), quote_count=0)
+        c = make_post_view("carol", "3", embed_uri=at_uri("alice", "5"), quote_count=0)
+
+        client = MockClient()
+        client.add_thread(
+            at_uri("alice", "1"),
+            make_thread_view(a, replies=[make_thread_view(a5)]),
+        )
+        client.add_thread(at_uri("bob", "2"), make_thread_view(b))
+        client.add_thread(at_uri("carol", "3"), make_thread_view(c))
+        # Quotes that should NOT be fetched (alice/1 already explored)
+        client.add_quotes(at_uri("alice", "1"), [make_post_view("skip", "99")])
+        # Quotes that SHOULD be fetched (alice/5 never explored)
+        client.add_quotes(at_uri("alice", "5"), [b, c])
+
+        web = await crawl(client, at_uri("alice", "1"), existing=existing)
+
+        quote_uris = client.call_uris("get_quotes")
+        assert at_uri("alice", "1") not in quote_uris  # skipped — has edge
+        assert at_uri("alice", "5") in quote_uris  # checked — no edges
+        assert web.node_count >= 4  # alice/1, alice/5, bob/2, carol/3
+
+    async def test_smart_refetch_edges_exist_but_count_grew(self):
+        """B5d: Post has edges from prior crawl but quote_count increased → re-check."""
+        existing = ContextWeb(
+            root_uri=at_uri("alice", "1"),
+            crawled_at="2026-01-01T00:00:00Z",
+        )
+        existing.add_thread(Thread(
+            root_uri=at_uri("alice", "1"),
+            posts={
+                at_uri("alice", "1"): Post(
+                    uri=at_uri("alice", "1"),
+                    cid="cid-alice-1",
+                    author=Author(did="did:plc:alice", handle="alice.bsky.social"),
+                    text="hi",
+                    created_at="2026-01-01T00:00:00Z",
+                    quote_count=1,  # was 1 when we last checked
+                )
+            },
+        ))
+        # 1 edge from previous crawl
+        existing.quote_edges.append(QuoteEdge(
+            source=at_uri("alice", "1"),
+            target=at_uri("prev", "99"),
+            source_thread=at_uri("alice", "1"),
+            target_thread=at_uri("prev", "99"),
+        ))
+
+        # API now returns quote_count=3 (grew from 1 to 3)
+        a = make_post_view("alice", "1", quote_count=3)
         b = make_post_view("bob", "2", embed_uri=at_uri("alice", "1"), quote_count=0)
         client = MockClient()
         client.add_thread(at_uri("alice", "1"), make_thread_view(a))
@@ -483,7 +647,7 @@ class TestCrawlerMechanics:
             root_uri=at_uri("alice", "1"),
             crawled_at="2026-01-01T00:00:00Z",
         )
-        existing.threads[at_uri("alice", "1")] = Thread(
+        existing.add_thread(Thread(
             root_uri=at_uri("alice", "1"),
             posts={
                 at_uri("alice", "1"): Post(
@@ -496,7 +660,7 @@ class TestCrawlerMechanics:
                     quote_count=0,
                 )
             },
-        )
+        ))
 
         # API returns higher counts
         a = make_post_view("alice", "1", "Different text from API", like_count=50, reply_count=8, quote_count=0)
@@ -565,20 +729,21 @@ class TestCrawlerMechanics:
         assert web.quote_edges[0].target == at_uri("bob", "2")
 
     async def test_progress_callback(self):
-        """B12: progress_callback receives (node_count, edge_count) calls."""
+        """B12: progress_callback receives (node_count, edge_count, thread_count) calls."""
         a = make_post_view("alice", "1", quote_count=0)
         client = MockClient()
         client.add_thread(at_uri("alice", "1"), make_thread_view(a))
 
-        progress_calls: list[tuple[int, int]] = []
+        progress_calls: list[tuple[int, int, int]] = []
 
-        def on_progress(nodes: int, edges: int) -> None:
-            progress_calls.append((nodes, edges))
+        def on_progress(nodes: int, edges: int, threads: int) -> None:
+            progress_calls.append((nodes, edges, threads))
 
         web = await crawl(client, at_uri("alice", "1"), progress_callback=on_progress)
 
         assert len(progress_calls) >= 1
         assert progress_calls[-1][0] == web.node_count
+        assert progress_calls[-1][2] == web.thread_count
 
 
 # ===================================================================
@@ -742,7 +907,7 @@ class TestEdgeCases:
             crawled_at="2026-01-01T00:00:00Z",
         )
         # Existing: thread T1 with A and B
-        existing.threads[at_uri("alice", "1")] = Thread(
+        existing.add_thread(Thread(
             root_uri=at_uri("alice", "1"),
             posts={
                 at_uri("alice", "1"): Post(
@@ -764,7 +929,7 @@ class TestEdgeCases:
                     quote_count=0,
                 ),
             },
-        )
+        ))
 
         # API now returns A with quote_count=1 (new quote!)
         a = make_post_view("alice", "1", quote_count=1)
@@ -793,3 +958,5 @@ class TestEdgeCases:
         t1 = web.threads[at_uri("alice", "1")]
         assert at_uri("alice", "1") in t1.posts
         assert at_uri("bob", "2") in t1.posts
+
+

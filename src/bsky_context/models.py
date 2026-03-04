@@ -155,10 +155,42 @@ class ContextWeb:
     crawled_at: str  # ISO 8601
     threads: dict[str, Thread] = field(default_factory=dict)  # root URI -> Thread
     quote_edges: list[QuoteEdge] = field(default_factory=list)
+    _post_index: dict[str, str] = field(
+        default_factory=dict, init=False, repr=False,
+    )  # post URI -> thread root URI, O(1) lookup
+
+    # -- Mutation methods (keep _post_index in sync) --
+
+    def add_thread(self, thread: Thread) -> None:
+        """Register a thread and index all its posts."""
+        self.threads[thread.root_uri] = thread
+        for uri in thread.posts:
+            self._post_index[uri] = thread.root_uri
+
+    def remove_thread(self, root_uri: str) -> Thread:
+        """Remove a thread and deindex its posts."""
+        thread = self.threads.pop(root_uri)
+        for uri in thread.posts:
+            self._post_index.pop(uri, None)
+        return thread
+
+    def add_post(self, thread_root: str, post: Post) -> None:
+        """Add a post to a thread and update the index."""
+        self.threads[thread_root].posts[post.uri] = post
+        self._post_index[post.uri] = thread_root
+
+    def _rebuild_index(self) -> None:
+        """Rebuild _post_index from threads (used after deserialization)."""
+        self._post_index.clear()
+        for thread in self.threads.values():
+            for uri in thread.posts:
+                self._post_index[uri] = thread.root_uri
+
+    # -- O(1) lookup methods --
 
     @property
     def node_count(self) -> int:
-        return sum(t.post_count for t in self.threads.values())
+        return len(self._post_index)
 
     @property
     def edge_count(self) -> int:
@@ -174,23 +206,47 @@ class ContextWeb:
 
     @property
     def nodes(self) -> dict[str, Post]:
-        """Flat view of all posts across all threads."""
+        """Flat view of all posts across all threads (for lenses)."""
         result: dict[str, Post] = {}
         for thread in self.threads.values():
             result.update(thread.posts)
         return result
 
-    def thread_for_post(self, uri: str) -> Thread | None:
-        """Find which thread contains a given post URI."""
-        for thread in self.threads.values():
-            if uri in thread.posts:
-                return thread
-        return None
+    def has_post(self, uri: str) -> bool:
+        """O(1) check if a post URI exists in any thread."""
+        return uri in self._post_index
 
-    def deduplicate_quote_edges(self) -> None:
+    def get_post(self, uri: str) -> Post | None:
+        """O(1) lookup of a single post by URI."""
+        root = self._post_index.get(uri)
+        if root is None:
+            return None
+        return self.threads[root].posts.get(uri)
+
+    def thread_root_for(self, uri: str) -> str | None:
+        """O(1) lookup: which thread root contains this post URI?"""
+        return self._post_index.get(uri)
+
+    def thread_for_post(self, uri: str) -> Thread | None:
+        """O(1) find which thread contains a given post URI."""
+        root = self._post_index.get(uri)
+        if root is None:
+            return None
+        return self.threads.get(root)
+
+    def normalize_quote_edges(self) -> None:
+        """Fix stale thread refs, drop orphans, and deduplicate quote edges."""
         seen: set[tuple[str, str]] = set()
         unique: list[QuoteEdge] = []
         for qe in self.quote_edges:
+            # Fix stale source_thread/target_thread from placeholder merges
+            actual_source = self._post_index.get(qe.source)
+            actual_target = self._post_index.get(qe.target)
+            # Drop edges referencing posts no longer in the web
+            if actual_source is None or actual_target is None:
+                continue
+            qe.source_thread = actual_source
+            qe.target_thread = actual_target
             key = (qe.source, qe.target)
             if key not in seen:
                 seen.add(key)
@@ -198,7 +254,7 @@ class ContextWeb:
         self.quote_edges = unique
 
     def to_dict(self) -> dict[str, Any]:
-        self.deduplicate_quote_edges()
+        self.normalize_quote_edges()
         return {
             "meta": {
                 "format_version": 2,
@@ -220,4 +276,5 @@ class ContextWeb:
             web.threads[uri] = Thread.from_dict(td)
         for qed in d.get("quote_edges", []):
             web.quote_edges.append(QuoteEdge.from_dict(qed))
+        web._rebuild_index()
         return web

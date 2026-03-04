@@ -56,8 +56,8 @@ def _build_test_web() -> ContextWeb:
         },
     )
 
-    web.threads[thread1.root_uri] = thread1
-    web.threads[thread2.root_uri] = thread2
+    web.add_thread(thread1)
+    web.add_thread(thread2)
 
     web.quote_edges = [
         QuoteEdge(

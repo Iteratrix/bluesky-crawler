@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import time
 
 import click
 
@@ -65,8 +66,14 @@ def fetch(post_url: str, max_nodes: int, max_depth: int | None, timeout: float,
             except FileNotFoundError:
                 pass  # No existing web, fresh crawl
 
-        def _progress(nodes: int, edges: int) -> None:
-            click.echo(f"\r  Crawling... {nodes} posts, {edges} edges", nl=False, err=True)
+        t0 = time.monotonic()
+
+        def _progress(nodes: int, edges: int, threads: int) -> None:
+            elapsed = time.monotonic() - t0
+            click.echo(
+                f"\r  Crawling... {nodes} posts, {threads} threads, {edges} edges ({elapsed:.0f}s)",
+                nl=False, err=True,
+            )
 
         web = await crawl(
             client,
@@ -78,10 +85,14 @@ def fetch(post_url: str, max_nodes: int, max_depth: int | None, timeout: float,
             progress_callback=_progress,
         )
 
+        elapsed = time.monotonic() - t0
         path = save_web(web)
         click.echo("", err=True)  # newline after progress
+        click.echo(
+            f"  Done in {elapsed:.1f}s: {web.node_count} posts, {web.thread_count} threads, {web.edge_count} edges",
+            err=True,
+        )
         click.echo(f"  Saved: {path.stem}", err=True)
-        click.echo(f"  {web.node_count} posts, {web.edge_count} edges, {web.thread_count} threads", err=True)
         # Machine-consumable output: just the web ID
         click.echo(path.stem)
 

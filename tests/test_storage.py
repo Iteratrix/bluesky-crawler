@@ -17,7 +17,7 @@ def tmp_data_dir(tmp_path):
 
 def _make_web(root_uri: str = "at://did:plc:test/app.bsky.feed.post/abc123") -> ContextWeb:
     web = ContextWeb(root_uri=root_uri, crawled_at="2026-01-01T00:00:00Z")
-    web.threads[root_uri] = Thread(
+    web.add_thread(Thread(
         root_uri=root_uri,
         posts={
             root_uri: Post(
@@ -26,7 +26,7 @@ def _make_web(root_uri: str = "at://did:plc:test/app.bsky.feed.post/abc123") -> 
                 text="Test post", created_at="2026-01-01T00:00:00Z",
             ),
         },
-    )
+    ))
     return web
 
 

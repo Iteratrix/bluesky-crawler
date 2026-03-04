@@ -24,7 +24,7 @@ async def crawl(
     max_depth: int | None = None,
     timeout: float = 300.0,
     existing: ContextWeb | None = None,
-    progress_callback: Callable[[int, int], None] | None = None,
+    progress_callback: Callable[[int, int, int], None] | None = None,
 ) -> ContextWeb:
     """Crawl the full context web starting from a post URI.
 
@@ -37,13 +37,14 @@ async def crawl(
         existing: Optional existing ContextWeb to merge into. When provided,
             the crawler skips getQuotes calls for posts whose quote_count
             hasn't changed, saving API calls.
-        progress_callback: Optional callable(node_count, edge_count).
+        progress_callback: Optional callable(node_count, edge_count, thread_count).
     """
-    # Snapshot old quote counts before we start updating them
-    old_quote_counts: dict[str, int] = {}
+    # Count existing quote edges per source, so we can detect which posts
+    # had their quotes explored vs. which were discovered but not followed.
+    old_edge_counts: dict[str, int] = {}
     if existing is not None:
-        for uri, post in existing.nodes.items():
-            old_quote_counts[uri] = post.quote_count
+        for qe in existing.quote_edges:
+            old_edge_counts[qe.source] = old_edge_counts.get(qe.source, 0) + 1
         web = existing
         web.crawled_at = datetime.now(timezone.utc).isoformat()
     else:
@@ -88,25 +89,25 @@ async def crawl(
             if current_quote_count == 0:
                 continue
 
-            # Skip getQuotes if quote_count hasn't changed since last crawl
-            if post_uri in old_quote_counts:
-                if current_quote_count == old_quote_counts[post_uri]:
+            # Skip getQuotes if we already have edges from a previous crawl
+            # and the quote_count hasn't increased
+            if post_uri in old_edge_counts:
+                if current_quote_count <= old_edge_counts[post_uri]:
                     continue
 
             await _fetch_quotes(client, post_uri, depth, web, queue, max_depth)
 
         if progress_callback:
-            progress_callback(web.node_count, web.edge_count)
+            progress_callback(web.node_count, web.edge_count, web.thread_count)
 
-    web.deduplicate_quote_edges()
+    web.normalize_quote_edges()
     # Normalize root_uri to canonical DID form if we have it
-    all_posts = web.nodes
-    if start_uri in all_posts:
-        web.root_uri = all_posts[start_uri].uri
-    elif all_posts:
+    if web.has_post(start_uri):
+        web.root_uri = web.get_post(start_uri).uri
+    elif web.node_count > 0:
         # The start URI might have been a handle-based URI; find the canonical version
         rkey = start_uri.rsplit("/", 1)[-1]
-        for uri in all_posts:
+        for uri in web._post_index:
             if uri.endswith(f"/{rkey}"):
                 web.root_uri = uri
                 break
@@ -116,10 +117,7 @@ async def crawl(
 
 def _known_thread_root(web: ContextWeb, uri: str) -> str | None:
     """If we already know which thread contains this URI, return its root."""
-    for thread in web.threads.values():
-        if uri in thread.posts:
-            return thread.root_uri
-    return None
+    return web.thread_root_for(uri)
 
 
 async def _retry(coro_factory, *args, **kwargs):
@@ -183,25 +181,20 @@ async def _fetch_thread(
     # (handles the case where a placeholder thread was created with a different root)
     existing_root = None
     for p_uri in posts:
-        for thread in web.threads.values():
-            if p_uri in thread.posts:
-                existing_root = thread.root_uri
-                break
-        if existing_root:
+        root = web.thread_root_for(p_uri)
+        if root is not None:
+            existing_root = root
             break
 
     if existing_root and existing_root != thread_root_uri:
         # Merge placeholder thread into the real thread
-        old_thread = web.threads.pop(existing_root)
-        if thread_root_uri in web.threads:
-            target_thread = web.threads[thread_root_uri]
-        else:
-            target_thread = Thread(root_uri=thread_root_uri)
-            web.threads[thread_root_uri] = target_thread
+        old_thread = web.remove_thread(existing_root)
+        if thread_root_uri not in web.threads:
+            web.add_thread(Thread(root_uri=thread_root_uri))
         # Move posts from old placeholder
         for p_uri, p in old_thread.posts.items():
-            if p_uri not in target_thread.posts:
-                target_thread.posts[p_uri] = p
+            if not web.has_post(p_uri):
+                web.add_post(thread_root_uri, p)
         # Update quote edges referencing old root
         for qe in web.quote_edges:
             if qe.source_thread == existing_root:
@@ -209,21 +202,19 @@ async def _fetch_thread(
             if qe.target_thread == existing_root:
                 qe.target_thread = thread_root_uri
     elif thread_root_uri not in web.threads:
-        web.threads[thread_root_uri] = Thread(root_uri=thread_root_uri)
-
-    thread = web.threads[thread_root_uri]
+        web.add_thread(Thread(root_uri=thread_root_uri))
 
     # Add/update posts in thread
     for p_uri, post in posts.items():
-        if p_uri in thread.posts:
+        if web.has_post(p_uri):
             # Update engagement counts on existing posts
-            existing = thread.posts[p_uri]
-            existing.like_count = post.like_count
-            existing.reply_count = post.reply_count
-            existing.repost_count = post.repost_count
-            existing.quote_count = post.quote_count
+            existing_post = web.get_post(p_uri)
+            existing_post.like_count = post.like_count
+            existing_post.reply_count = post.reply_count
+            existing_post.repost_count = post.repost_count
+            existing_post.quote_count = post.quote_count
         else:
-            thread.posts[p_uri] = post
+            web.add_post(thread_root_uri, post)
 
     # Create quote edges and queue quoted post targets
     for post in posts.values():
@@ -378,22 +369,16 @@ async def _fetch_quotes(
         if resp is None:
             break
 
-        all_posts = web.nodes
         for post_view in resp.posts or []:
             post = _extract_post(post_view)
-            if post.uri not in all_posts:
+            if not web.has_post(post.uri):
                 # Determine this post's thread root
                 target_thread_root = post.reply_root if post.reply_root else post.uri
 
                 # Add to appropriate thread or create placeholder
-                if target_thread_root in web.threads:
-                    web.threads[target_thread_root].posts[post.uri] = post
-                else:
-                    thread = Thread(
-                        root_uri=target_thread_root,
-                        posts={post.uri: post},
-                    )
-                    web.threads[target_thread_root] = thread
+                if target_thread_root not in web.threads:
+                    web.add_thread(Thread(root_uri=target_thread_root))
+                web.add_post(target_thread_root, post)
 
                 web.quote_edges.append(QuoteEdge(
                     source=uri,

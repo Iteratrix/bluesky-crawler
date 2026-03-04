@@ -97,10 +97,10 @@ class TestContextWeb:
         web = ContextWeb(root_uri="at://x/app.bsky.feed.post/1", crawled_at="2026-01-01T00:00:00Z")
         root_uri = "at://x/app.bsky.feed.post/1"
         reply_uri = "at://x/app.bsky.feed.post/2"
-        web.threads[root_uri] = Thread(root_uri=root_uri, posts={
+        web.add_thread(Thread(root_uri=root_uri, posts={
             root_uri: _make_post(root_uri),
             reply_uri: _make_post(reply_uri, reply_parent=root_uri, reply_root=root_uri),
-        })
+        }))
 
         d = web.to_dict()
         web2 = ContextWeb.from_dict(d)
@@ -111,17 +111,17 @@ class TestContextWeb:
 
     def test_node_count_across_threads(self):
         web = ContextWeb(root_uri="at://x/app.bsky.feed.post/1", crawled_at="2026-01-01T00:00:00Z")
-        web.threads["at://a/app.bsky.feed.post/1"] = Thread(
+        web.add_thread(Thread(
             root_uri="at://a/app.bsky.feed.post/1",
             posts={"at://a/app.bsky.feed.post/1": _make_post("at://a/app.bsky.feed.post/1")},
-        )
-        web.threads["at://b/app.bsky.feed.post/2"] = Thread(
+        ))
+        web.add_thread(Thread(
             root_uri="at://b/app.bsky.feed.post/2",
             posts={
                 "at://b/app.bsky.feed.post/2": _make_post("at://b/app.bsky.feed.post/2"),
                 "at://b/app.bsky.feed.post/3": _make_post("at://b/app.bsky.feed.post/3"),
             },
-        )
+        ))
         assert web.node_count == 3
         assert web.thread_count == 2
 
@@ -129,12 +129,12 @@ class TestContextWeb:
         web = ContextWeb(root_uri="at://x/app.bsky.feed.post/1", crawled_at="2026-01-01T00:00:00Z")
         p1 = _make_post("at://a/app.bsky.feed.post/1")
         p2 = _make_post("at://b/app.bsky.feed.post/2")
-        web.threads["at://a/app.bsky.feed.post/1"] = Thread(
+        web.add_thread(Thread(
             root_uri="at://a/app.bsky.feed.post/1", posts={p1.uri: p1},
-        )
-        web.threads["at://b/app.bsky.feed.post/2"] = Thread(
+        ))
+        web.add_thread(Thread(
             root_uri="at://b/app.bsky.feed.post/2", posts={p2.uri: p2},
-        )
+        ))
         nodes = web.nodes
         assert len(nodes) == 2
         assert p1.uri in nodes
@@ -143,37 +143,78 @@ class TestContextWeb:
     def test_thread_for_post(self):
         web = ContextWeb(root_uri="at://x/app.bsky.feed.post/1", crawled_at="2026-01-01T00:00:00Z")
         root_uri = "at://a/app.bsky.feed.post/1"
-        web.threads[root_uri] = Thread(
+        web.add_thread(Thread(
             root_uri=root_uri, posts={root_uri: _make_post(root_uri)},
-        )
+        ))
         assert web.thread_for_post(root_uri) is not None
         assert web.thread_for_post(root_uri).root_uri == root_uri
         assert web.thread_for_post("at://nonexistent") is None
 
-    def test_deduplicate_quote_edges(self):
+    def test_normalize_deduplicates(self):
         web = ContextWeb(root_uri="at://x/app.bsky.feed.post/1", crawled_at="2026-01-01T00:00:00Z")
-        qe = QuoteEdge(source="a", target="b", source_thread="ta", target_thread="tb")
+        a_uri = "at://a/app.bsky.feed.post/1"
+        b_uri = "at://b/app.bsky.feed.post/2"
+        web.add_thread(Thread(root_uri=a_uri, posts={a_uri: _make_post(a_uri)}))
+        web.add_thread(Thread(root_uri=b_uri, posts={b_uri: _make_post(b_uri)}))
+        qe = QuoteEdge(source=a_uri, target=b_uri, source_thread=a_uri, target_thread=b_uri)
         web.quote_edges = [qe, qe, qe]
-        web.deduplicate_quote_edges()
+        web.normalize_quote_edges()
         assert len(web.quote_edges) == 1
 
-    def test_deduplicate_preserves_distinct_edges(self):
+    def test_normalize_preserves_distinct_edges(self):
         web = ContextWeb(root_uri="at://x/app.bsky.feed.post/1", crawled_at="2026-01-01T00:00:00Z")
+        a_uri = "at://a/app.bsky.feed.post/1"
+        b_uri = "at://b/app.bsky.feed.post/2"
+        c_uri = "at://c/app.bsky.feed.post/3"
+        web.add_thread(Thread(root_uri=a_uri, posts={a_uri: _make_post(a_uri)}))
+        web.add_thread(Thread(root_uri=b_uri, posts={b_uri: _make_post(b_uri)}))
+        web.add_thread(Thread(root_uri=c_uri, posts={c_uri: _make_post(c_uri)}))
         web.quote_edges = [
-            QuoteEdge(source="a", target="b", source_thread="ta", target_thread="tb"),
-            QuoteEdge(source="a", target="c", source_thread="ta", target_thread="tc"),
+            QuoteEdge(source=a_uri, target=b_uri, source_thread=a_uri, target_thread=b_uri),
+            QuoteEdge(source=a_uri, target=c_uri, source_thread=a_uri, target_thread=c_uri),
         ]
-        web.deduplicate_quote_edges()
+        web.normalize_quote_edges()
         assert len(web.quote_edges) == 2
+
+    def test_normalize_fixes_stale_thread_refs(self):
+        web = ContextWeb(root_uri="at://x/app.bsky.feed.post/1", crawled_at="2026-01-01T00:00:00Z")
+        a_uri = "at://a/app.bsky.feed.post/1"
+        b_uri = "at://b/app.bsky.feed.post/2"
+        real_thread = "at://a/app.bsky.feed.post/1"
+        web.add_thread(Thread(root_uri=real_thread, posts={
+            a_uri: _make_post(a_uri),
+            b_uri: _make_post(b_uri),
+        }))
+        # Edge has stale source_thread from a merged placeholder
+        web.quote_edges = [
+            QuoteEdge(source=a_uri, target=b_uri,
+                      source_thread="at://stale/placeholder", target_thread="at://stale/other"),
+        ]
+        web.normalize_quote_edges()
+        assert len(web.quote_edges) == 1
+        assert web.quote_edges[0].source_thread == real_thread
+        assert web.quote_edges[0].target_thread == real_thread
+
+    def test_normalize_drops_orphan_edges(self):
+        web = ContextWeb(root_uri="at://x/app.bsky.feed.post/1", crawled_at="2026-01-01T00:00:00Z")
+        a_uri = "at://a/app.bsky.feed.post/1"
+        web.add_thread(Thread(root_uri=a_uri, posts={a_uri: _make_post(a_uri)}))
+        # Edge references a post not in the web
+        web.quote_edges = [
+            QuoteEdge(source=a_uri, target="at://gone/app.bsky.feed.post/999",
+                      source_thread=a_uri, target_thread="at://gone/app.bsky.feed.post/999"),
+        ]
+        web.normalize_quote_edges()
+        assert len(web.quote_edges) == 0
 
     def test_edge_count_includes_replies_and_quotes(self):
         web = ContextWeb(root_uri="at://x/app.bsky.feed.post/1", crawled_at="2026-01-01T00:00:00Z")
         root = "at://x/app.bsky.feed.post/1"
         reply = "at://x/app.bsky.feed.post/2"
-        web.threads[root] = Thread(root_uri=root, posts={
+        web.add_thread(Thread(root_uri=root, posts={
             root: _make_post(root),
             reply: _make_post(reply, reply_parent=root, reply_root=root),
-        })
+        }))
         web.quote_edges = [
             QuoteEdge(source=root, target="at://y/app.bsky.feed.post/3",
                       source_thread=root, target_thread="at://y/app.bsky.feed.post/3"),
@@ -183,7 +224,7 @@ class TestContextWeb:
     def test_meta_in_serialized(self):
         web = ContextWeb(root_uri="at://x/app.bsky.feed.post/1", crawled_at="2026-01-01T00:00:00Z")
         root = "at://x/app.bsky.feed.post/1"
-        web.threads[root] = Thread(root_uri=root, posts={root: _make_post(root)})
+        web.add_thread(Thread(root_uri=root, posts={root: _make_post(root)}))
         d = web.to_dict()
         assert d["meta"]["format_version"] == 2
         assert d["meta"]["node_count"] == 1
