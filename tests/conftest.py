@@ -33,6 +33,7 @@ def make_post_view(
     reply_root: str | None = None,
     embed_uri: str | None = None,
     embed_type: str = "app.bsky.embed.record",
+    facets: list[types.SimpleNamespace] | None = None,
     like_count: int = 0,
     reply_count: int = 0,
     repost_count: int = 0,
@@ -45,7 +46,7 @@ def make_post_view(
     record = types.SimpleNamespace(
         text=text or f"Post {rkey} by {author}",
         created_at=created_at,
-        facets=None,
+        facets=facets,
         langs=[],
     )
 
@@ -81,6 +82,18 @@ def make_post_view(
         reply_count=reply_count,
         repost_count=repost_count,
         quote_count=quote_count,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Facet mock builders
+# ---------------------------------------------------------------------------
+
+def make_link_facet(uri: str, byte_start: int = 0, byte_end: int = 10) -> types.SimpleNamespace:
+    """Build a facet with a link feature."""
+    return types.SimpleNamespace(
+        index=types.SimpleNamespace(byte_start=byte_start, byte_end=byte_end),
+        features=[types.SimpleNamespace(py_type="app.bsky.richtext.facet#link", uri=uri)],
     )
 
 

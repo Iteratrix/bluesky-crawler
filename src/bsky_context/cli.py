@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import sys
 import time
 
@@ -28,8 +29,10 @@ def main():
               help="Maximum wall-clock seconds for the crawl.")
 @click.option("--fresh", is_flag=True, default=False,
               help="Ignore any stored version and crawl from scratch.")
+@click.option("--verbose", "-v", is_flag=True, default=False,
+              help="Show detailed logging (rate limits, retries, errors).")
 def fetch(post_url: str, max_nodes: int, max_depth: int | None, timeout: float,
-          fresh: bool):
+          fresh: bool, verbose: bool):
     """Crawl a Bluesky conversation graph starting from POST_URL.
 
     POST_URL can be an AT URI or a bsky.app URL.
@@ -43,6 +46,19 @@ def fetch(post_url: str, max_nodes: int, max_depth: int | None, timeout: float,
     except ValueError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
+
+    if verbose:
+        logging.basicConfig(
+            level=logging.DEBUG,
+            format="  %(levelname)s %(name)s: %(message)s",
+            stream=sys.stderr,
+        )
+    else:
+        logging.basicConfig(
+            level=logging.WARNING,
+            format="  %(levelname)s: %(message)s",
+            stream=sys.stderr,
+        )
 
     async def _run():
         from bsky_context.auth import get_client

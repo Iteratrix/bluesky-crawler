@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import types
+
 import pytest
+
+from atproto_client.exceptions import NetworkError, RequestException
 
 from bsky_context.crawler import _retry, crawl
 from bsky_context.models import Author, ContextWeb, Post, QuoteEdge, Thread
@@ -11,6 +15,7 @@ from conftest import (
     MockClient,
     at_uri,
     make_blocked,
+    make_link_facet,
     make_not_found,
     make_post_view,
     make_thread_view,
@@ -778,18 +783,35 @@ class TestErrorHandling:
     async def test_retry_on_rate_limit(self):
         """C3: _retry retries on 429 errors then succeeds."""
         call_count = 0
+        rate_limit_resp = types.SimpleNamespace(status_code=429, headers={})
 
         async def flaky(**_kwargs):
             nonlocal call_count
             call_count += 1
             if call_count < 3:
-                raise Exception("429 Too Many Requests")
+                raise RequestException(response=rate_limit_resp)
             return "success"
 
         result = await _retry(flaky)
 
         assert result == "success"
         assert call_count == 3
+
+    async def test_retry_on_network_error(self):
+        """C3b: _retry retries on network errors then succeeds."""
+        call_count = 0
+
+        async def flaky(**_kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count < 2:
+                raise NetworkError()
+            return "success"
+
+        result = await _retry(flaky)
+
+        assert result == "success"
+        assert call_count == 2
 
     async def test_retry_exhaustion_raises(self):
         """C4: Permanent non-transient error raises after first attempt."""
@@ -827,6 +849,70 @@ class TestErrorHandling:
         web = await crawl(client, at_uri("alice", "1"))
 
         assert web.node_count == 0
+
+    async def test_termination_log_timeout(self, caplog):
+        """C7: Crawl logs 'timeout' when deadline is exceeded."""
+        a = make_post_view("alice", "1", quote_count=1)
+        b = make_post_view("bob", "2", embed_uri=at_uri("alice", "1"), quote_count=0)
+
+        client = MockClient()
+        client.add_thread(at_uri("alice", "1"), make_thread_view(a))
+        client.add_thread(at_uri("bob", "2"), make_thread_view(b))
+        client.add_quotes(at_uri("alice", "1"), [b])
+
+        with caplog.at_level("INFO", logger="bsky_context.crawler"):
+            await crawl(client, at_uri("alice", "1"), timeout=0.0)
+
+        assert any("timeout" in msg.lower() for msg in caplog.messages)
+
+    async def test_termination_log_max_nodes(self, caplog):
+        """C8: Crawl logs 'max_nodes' when node limit is reached."""
+        a = make_post_view("alice", "1", quote_count=1)
+        b = make_post_view("bob", "2", embed_uri=at_uri("alice", "1"), quote_count=1)
+        c = make_post_view("carol", "3", embed_uri=at_uri("bob", "2"), quote_count=0)
+
+        client = MockClient()
+        client.add_thread(at_uri("alice", "1"), make_thread_view(a))
+        client.add_thread(at_uri("bob", "2"), make_thread_view(b))
+        client.add_thread(at_uri("carol", "3"), make_thread_view(c))
+        client.add_quotes(at_uri("alice", "1"), [b])
+        client.add_quotes(at_uri("bob", "2"), [c])
+
+        with caplog.at_level("INFO", logger="bsky_context.crawler"):
+            await crawl(client, at_uri("alice", "1"), max_nodes=1)
+
+        assert any("max_nodes" in msg.lower() for msg in caplog.messages)
+
+    async def test_termination_log_complete(self, caplog):
+        """C9: Crawl logs 'fully explored' when graph is exhausted."""
+        a = make_post_view("alice", "1", quote_count=0)
+
+        client = MockClient()
+        client.add_thread(at_uri("alice", "1"), make_thread_view(a))
+
+        with caplog.at_level("INFO", logger="bsky_context.crawler"):
+            await crawl(client, at_uri("alice", "1"))
+
+        assert any("fully explored" in msg.lower() for msg in caplog.messages)
+
+    async def test_termination_log_max_depth_still_completes(self, caplog):
+        """C10: max_depth items are skipped, crawl logs 'fully explored'."""
+        a = make_post_view("alice", "1", quote_count=1)
+        b = make_post_view("bob", "2", embed_uri=at_uri("alice", "1"), quote_count=1)
+        c = make_post_view("carol", "3", embed_uri=at_uri("bob", "2"), quote_count=0)
+
+        client = MockClient()
+        client.add_thread(at_uri("alice", "1"), make_thread_view(a))
+        client.add_thread(at_uri("bob", "2"), make_thread_view(b))
+        client.add_thread(at_uri("carol", "3"), make_thread_view(c))
+        client.add_quotes(at_uri("alice", "1"), [b])
+        client.add_quotes(at_uri("bob", "2"), [c])
+
+        with caplog.at_level("INFO", logger="bsky_context.crawler"):
+            await crawl(client, at_uri("alice", "1"), max_depth=0)
+
+        # Depth-exceeded items are consumed from queue, so crawl ends as "fully explored"
+        assert any("fully explored" in msg.lower() for msg in caplog.messages)
 
 
 # ===================================================================
@@ -958,5 +1044,122 @@ class TestEdgeCases:
         t1 = web.threads[at_uri("alice", "1")]
         assert at_uri("alice", "1") in t1.posts
         assert at_uri("bob", "2") in t1.posts
+
+
+# ===================================================================
+# E. Facet Edge Detection Tests
+# ===================================================================
+
+
+class TestFacetEdges:
+    """Test detection of post references in link facets."""
+
+    async def test_link_facet_creates_quote_edge(self):
+        """E1: A link facet pointing to a post creates a quote edge and queues the target."""
+        # Use handle-based URI as the facet link (this is what real posts contain)
+        handle_uri = "at://carol.bsky.social/app.bsky.feed.post/5"
+        a = make_post_view(
+            "alice", "1",
+            facets=[make_link_facet("https://bsky.app/profile/carol.bsky.social/post/5")],
+            quote_count=0,
+        )
+        target = make_post_view("carol", "5", quote_count=0)
+
+        client = MockClient()
+        client.add_thread(at_uri("alice", "1"), make_thread_view(a))
+        # Register under the handle-based URI (what PostRef.from_str produces)
+        client.add_thread(handle_uri, make_thread_view(target))
+
+        web = await crawl(client, at_uri("alice", "1"))
+
+        assert web.node_count == 2
+        assert len(web.quote_edges) >= 1
+        edge_targets = {qe.target for qe in web.quote_edges}
+        assert at_uri("alice", "1") in edge_targets
+
+    async def test_link_facet_at_uri(self):
+        """E2: A link facet with an AT URI (not bsky.app URL) also works."""
+        target_uri = at_uri("carol", "5")
+        a = make_post_view(
+            "alice", "1",
+            facets=[make_link_facet(target_uri)],
+            quote_count=0,
+        )
+        target = make_post_view("carol", "5", quote_count=0)
+
+        client = MockClient()
+        client.add_thread(at_uri("alice", "1"), make_thread_view(a))
+        client.add_thread(target_uri, make_thread_view(target))
+
+        web = await crawl(client, at_uri("alice", "1"))
+
+        assert web.node_count == 2
+        assert len(web.quote_edges) >= 1
+
+    async def test_link_facet_skips_non_post_urls(self):
+        """E3: Link facets pointing to non-post URLs are ignored."""
+        a = make_post_view(
+            "alice", "1",
+            facets=[make_link_facet("https://example.com/some-page")],
+            quote_count=0,
+        )
+
+        client = MockClient()
+        client.add_thread(at_uri("alice", "1"), make_thread_view(a))
+
+        web = await crawl(client, at_uri("alice", "1"))
+
+        assert web.node_count == 1
+        assert len(web.quote_edges) == 0
+
+    async def test_link_facet_deduped_with_embed(self):
+        """E4: Link facet pointing to same post as embed_uri doesn't create duplicate edge."""
+        target_uri = at_uri("carol", "5")
+        a = make_post_view(
+            "alice", "1",
+            embed_uri=target_uri,
+            facets=[make_link_facet(target_uri)],
+            quote_count=0,
+        )
+        target = make_post_view("carol", "5", quote_count=0)
+
+        client = MockClient()
+        client.add_thread(at_uri("alice", "1"), make_thread_view(a))
+        client.add_thread(target_uri, make_thread_view(target))
+
+        web = await crawl(client, at_uri("alice", "1"))
+
+        # Only 1 edge (from embed), not 2
+        assert len(web.quote_edges) == 1
+
+
+# ===================================================================
+# F. Unknown Facet Type Tests
+# ===================================================================
+
+
+class TestUnknownFacets:
+    """Test that unknown facet types are preserved rather than dropped."""
+
+    async def test_unknown_facet_type_preserved(self):
+        """F1: A facet with an unrecognized py_type is preserved with its type string."""
+        from bsky_context.crawler import _extract_facets
+
+        record = types.SimpleNamespace(
+            facets=[
+                types.SimpleNamespace(
+                    index=types.SimpleNamespace(byte_start=0, byte_end=5),
+                    features=[
+                        types.SimpleNamespace(py_type="app.bsky.richtext.facet#futureType"),
+                    ],
+                ),
+            ],
+        )
+
+        result = _extract_facets(record)
+
+        assert len(result) == 1
+        assert len(result[0]["features"]) == 1
+        assert result[0]["features"][0]["type"] == "app.bsky.richtext.facet#futureType"
 
 

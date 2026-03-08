@@ -245,14 +245,12 @@ class ContextWeb:
         seen: set[tuple[str, str]] = set()
         unique: list[QuoteEdge] = []
         for qe in self.quote_edges:
-            # Fix stale source_thread/target_thread from placeholder merges
-            actual_source = self._post_index.get(qe.source)
-            actual_target = self._post_index.get(qe.target)
             # Drop edges referencing posts no longer in the web
-            if actual_source is None or actual_target is None:
+            if qe.source not in self._post_index or qe.target not in self._post_index:
                 continue
-            qe.source_thread = actual_source
-            qe.target_thread = actual_target
+            # Fix stale source_thread/target_thread from placeholder merges
+            qe.source_thread = self._post_index[qe.source]
+            qe.target_thread = self._post_index[qe.target]
             key = (qe.source, qe.target)
             if key not in seen:
                 seen.add(key)
