@@ -84,7 +84,7 @@ bsky-context fetch <url> --timeout 120      # 2 minute time limit
 bsky-context fetch <url> --fresh            # discard stored version, crawl from scratch
 ```
 
-Re-running `fetch` on a previously crawled post automatically loads the existing web and merges in new posts. Posts whose quote count hasn't changed are skipped for quote-fetching, making updates fast.
+Re-running `fetch` on a previously crawled post automatically loads the existing web and merges in new posts. Posts whose quote count hasn't changed are skipped for quote-fetching, making updates fast. In the rare case where a quote is deleted and a new one is created between crawls (keeping the count the same), the new quote won't be detected — use `--fresh` to force a complete re-crawl.
 
 ## Claude Code skill
 

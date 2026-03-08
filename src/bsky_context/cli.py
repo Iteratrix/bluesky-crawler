@@ -28,7 +28,9 @@ def main():
 @click.option("--timeout", default=300.0, show_default=True,
               help="Maximum wall-clock seconds for the crawl.")
 @click.option("--fresh", is_flag=True, default=False,
-              help="Ignore any stored version and crawl from scratch.")
+              help="Discard stored version and crawl from scratch. "
+                   "Use when quotes may have been deleted and recreated "
+                   "(smart re-fetch can miss these since it checks counts, not URIs).")
 @click.option("--verbose", "-v", is_flag=True, default=False,
               help="Show detailed logging (rate limits, retries, errors).")
 def fetch(post_url: str, max_nodes: int, max_depth: int | None, timeout: float,
