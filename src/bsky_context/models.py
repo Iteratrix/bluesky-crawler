@@ -6,27 +6,16 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
+import cattrs
+
+converter = cattrs.Converter()
+
 
 @dataclass
 class Author:
     did: str
     handle: str
     display_name: str = ""
-
-    def to_dict(self) -> dict[str, str]:
-        return {
-            "did": self.did,
-            "handle": self.handle,
-            "display_name": self.display_name,
-        }
-
-    @classmethod
-    def from_dict(cls, d: dict[str, str]) -> Author:
-        return cls(
-            did=d["did"],
-            handle=d["handle"],
-            display_name=d.get("display_name", ""),
-        )
 
 
 @dataclass
@@ -50,46 +39,6 @@ class Post:
     repost_count: int = 0
     quote_count: int = 0
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "uri": self.uri,
-            "cid": self.cid,
-            "author": self.author.to_dict(),
-            "text": self.text,
-            "created_at": self.created_at,
-            "reply_parent": self.reply_parent,
-            "reply_root": self.reply_root,
-            "embed_type": self.embed_type,
-            "embed_uri": self.embed_uri,
-            "facets": self.facets,
-            "labels": self.labels,
-            "langs": self.langs,
-            "like_count": self.like_count,
-            "reply_count": self.reply_count,
-            "repost_count": self.repost_count,
-            "quote_count": self.quote_count,
-        }
-
-    @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> Post:
-        return cls(
-            uri=d["uri"],
-            cid=d["cid"],
-            author=Author.from_dict(d["author"]),
-            text=d["text"],
-            created_at=d["created_at"],
-            reply_parent=d.get("reply_parent"),
-            reply_root=d.get("reply_root"),
-            embed_type=d.get("embed_type"),
-            embed_uri=d.get("embed_uri"),
-            facets=d.get("facets", []),
-            labels=d.get("labels", []),
-            langs=d.get("langs", []),
-            like_count=d.get("like_count", 0),
-            reply_count=d.get("reply_count", 0),
-            repost_count=d.get("repost_count", 0),
-            quote_count=d.get("quote_count", 0),
-        )
 
 
 @dataclass
@@ -107,18 +56,6 @@ class Thread:
     def root_post(self) -> Post | None:
         return self.posts.get(self.root_uri)
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "root_uri": self.root_uri,
-            "posts": {uri: p.to_dict() for uri, p in self.posts.items()},
-        }
-
-    @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> Thread:
-        thread = cls(root_uri=d["root_uri"])
-        for uri, pd in d["posts"].items():
-            thread.posts[uri] = Post.from_dict(pd)
-        return thread
 
 
 @dataclass
@@ -130,22 +67,6 @@ class QuoteEdge:
     source_thread: str  # thread root URI containing the source
     target_thread: str  # thread root URI containing the target
 
-    def to_dict(self) -> dict[str, str]:
-        return {
-            "source": self.source,
-            "target": self.target,
-            "source_thread": self.source_thread,
-            "target_thread": self.target_thread,
-        }
-
-    @classmethod
-    def from_dict(cls, d: dict[str, str]) -> QuoteEdge:
-        return cls(
-            source=d["source"],
-            target=d["target"],
-            source_thread=d["source_thread"],
-            target_thread=d["target_thread"],
-        )
 
 
 @dataclass
@@ -257,28 +178,43 @@ class ContextWeb:
                 unique.append(qe)
         self.quote_edges = unique
 
-    def to_dict(self) -> dict[str, Any]:
-        self.normalize_quote_edges()
-        return {
-            "meta": {
-                "format_version": 2,
-                "root_uri": self.root_uri,
-                "crawled_at": self.crawled_at,
-                "node_count": self.node_count,
-                "edge_count": self.edge_count,
-                "thread_count": self.thread_count,
-            },
-            "threads": {uri: t.to_dict() for uri, t in self.threads.items()},
-            "quote_edges": [qe.to_dict() for qe in self.quote_edges],
-        }
 
-    @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> ContextWeb:
-        meta = d["meta"]
-        web = cls(root_uri=meta["root_uri"], crawled_at=meta["crawled_at"])
-        for uri, td in d["threads"].items():
-            web.threads[uri] = Thread.from_dict(td)
-        for qed in d.get("quote_edges", []):
-            web.quote_edges.append(QuoteEdge.from_dict(qed))
-        web._rebuild_index()
-        return web
+
+# ---------------------------------------------------------------------------
+# cattrs hooks for ContextWeb (meta envelope + index rebuild)
+# ---------------------------------------------------------------------------
+
+
+def _unstructure_web(web: ContextWeb) -> dict[str, Any]:
+    web.normalize_quote_edges()
+    return {
+        "meta": {
+            "format_version": 2,
+            "root_uri": web.root_uri,
+            "crawled_at": web.crawled_at,
+            "node_count": web.node_count,
+            "edge_count": web.edge_count,
+            "thread_count": web.thread_count,
+        },
+        "threads": {
+            uri: converter.unstructure(t) for uri, t in web.threads.items()
+        },
+        "quote_edges": [
+            converter.unstructure(qe) for qe in web.quote_edges
+        ],
+    }
+
+
+def _structure_web(d: dict[str, Any], _: type) -> ContextWeb:
+    meta = d["meta"]
+    web = ContextWeb(root_uri=meta["root_uri"], crawled_at=meta["crawled_at"])
+    for uri, td in d["threads"].items():
+        web.threads[uri] = converter.structure(td, Thread)
+    for qed in d.get("quote_edges", []):
+        web.quote_edges.append(converter.structure(qed, QuoteEdge))
+    web._rebuild_index()
+    return web
+
+
+converter.register_unstructure_hook(ContextWeb, _unstructure_web)
+converter.register_structure_hook(ContextWeb, _structure_web)

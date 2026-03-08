@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 from collections import deque
 
-from bsky_context.models import ContextWeb, Post
+from bsky_context.models import ContextWeb, Post, converter
 
 
 def render(web: ContextWeb, lens: str = "tree", **kwargs) -> str:
@@ -300,7 +300,7 @@ def render_by_author(web: ContextWeb, **kwargs) -> str:
 
 def render_raw(web: ContextWeb, **kwargs) -> str:
     """JSON dump of the full graph."""
-    return json.dumps(web.to_dict(), indent=2, ensure_ascii=False)
+    return json.dumps(converter.unstructure(web), indent=2, ensure_ascii=False)
 
 
 # ---------------------------------------------------------------------------

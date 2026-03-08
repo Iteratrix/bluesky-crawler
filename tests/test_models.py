@@ -1,6 +1,6 @@
 """Tests for data models."""
 
-from bsky_context.models import Author, ContextWeb, Post, QuoteEdge, Thread
+from bsky_context.models import Author, ContextWeb, Post, QuoteEdge, Thread, converter
 
 
 def _make_post(uri: str, text: str = "hello", **kwargs) -> Post:
@@ -17,7 +17,7 @@ def _make_post(uri: str, text: str = "hello", **kwargs) -> Post:
 class TestAuthor:
     def test_roundtrip(self):
         a = Author(did="did:plc:x", handle="x.bsky.social", display_name="X")
-        assert Author.from_dict(a.to_dict()) == a
+        assert converter.structure(converter.unstructure(a), Author) == a
 
     def test_default_display_name(self):
         a = Author(did="did:plc:x", handle="x.bsky.social")
@@ -27,7 +27,7 @@ class TestAuthor:
 class TestPost:
     def test_roundtrip(self):
         p = _make_post("at://did:plc:a/app.bsky.feed.post/1", text="Hello world")
-        assert Post.from_dict(p.to_dict()) == p
+        assert converter.structure(converter.unstructure(p), Post) == p
 
     def test_optional_fields_default_none(self):
         p = _make_post("at://did:plc:a/app.bsky.feed.post/1")
@@ -40,8 +40,8 @@ class TestPost:
             reply_parent="at://did:plc:a/app.bsky.feed.post/1",
             reply_root="at://did:plc:a/app.bsky.feed.post/1",
         )
-        d = p.to_dict()
-        p2 = Post.from_dict(d)
+        d = converter.unstructure(p)
+        p2 = converter.structure(d, Post)
         assert p2.reply_parent == "at://did:plc:a/app.bsky.feed.post/1"
 
 
@@ -68,8 +68,8 @@ class TestThread:
             reply_uri: _make_post(reply_uri, text="reply",
                                   reply_parent=root_uri, reply_root=root_uri),
         })
-        d = t.to_dict()
-        t2 = Thread.from_dict(d)
+        d = converter.unstructure(t)
+        t2 = converter.structure(d, Thread)
         assert t2.root_uri == root_uri
         assert t2.post_count == 2
         assert t2.posts[reply_uri].reply_parent == root_uri
@@ -83,7 +83,7 @@ class TestQuoteEdge:
             source_thread="at://a/app.bsky.feed.post/1",
             target_thread="at://b/app.bsky.feed.post/2",
         )
-        assert QuoteEdge.from_dict(qe.to_dict()) == qe
+        assert converter.structure(converter.unstructure(qe), QuoteEdge) == qe
 
 
 class TestContextWeb:
@@ -102,8 +102,8 @@ class TestContextWeb:
             reply_uri: _make_post(reply_uri, reply_parent=root_uri, reply_root=root_uri),
         }))
 
-        d = web.to_dict()
-        web2 = ContextWeb.from_dict(d)
+        d = converter.unstructure(web)
+        web2 = converter.structure(d, ContextWeb)
         assert web2.node_count == 2
         assert web2.edge_count == 1  # one reply edge
         assert web2.thread_count == 1
@@ -225,7 +225,7 @@ class TestContextWeb:
         web = ContextWeb(root_uri="at://x/app.bsky.feed.post/1", crawled_at="2026-01-01T00:00:00Z")
         root = "at://x/app.bsky.feed.post/1"
         web.add_thread(Thread(root_uri=root, posts={root: _make_post(root)}))
-        d = web.to_dict()
+        d = converter.unstructure(web)
         assert d["meta"]["format_version"] == 2
         assert d["meta"]["node_count"] == 1
         assert d["meta"]["edge_count"] == 0

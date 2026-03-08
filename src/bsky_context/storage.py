@@ -7,7 +7,7 @@ import json
 import os
 from pathlib import Path
 
-from bsky_context.models import ContextWeb
+from bsky_context.models import ContextWeb, converter
 
 
 def get_data_dir() -> Path:
@@ -31,7 +31,7 @@ def save_web(web: ContextWeb) -> Path:
     data_dir.mkdir(parents=True, exist_ok=True)
     wid = web_id(web.root_uri)
     path = data_dir / f"{wid}.json"
-    path.write_text(json.dumps(web.to_dict(), indent=2, ensure_ascii=False))
+    path.write_text(json.dumps(converter.unstructure(web), indent=2, ensure_ascii=False))
     return path
 
 
@@ -41,11 +41,11 @@ def load_web(identifier: str) -> ContextWeb:
     # Exact match
     exact = data_dir / f"{identifier}.json"
     if exact.exists():
-        return ContextWeb.from_dict(json.loads(exact.read_text()))
+        return converter.structure(json.loads(exact.read_text()), ContextWeb)
     # Prefix match
     matches = sorted(data_dir.glob(f"{identifier}*.json"))
     if len(matches) == 1:
-        return ContextWeb.from_dict(json.loads(matches[0].read_text()))
+        return converter.structure(json.loads(matches[0].read_text()), ContextWeb)
     if len(matches) > 1:
         names = [m.stem for m in matches]
         raise ValueError(f"Ambiguous ID '{identifier}', matches: {names}")
