@@ -6,7 +6,6 @@ import asyncio
 import logging
 import re
 import time
-from collections import deque
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -40,6 +39,7 @@ async def crawl(
     max_nodes: int = 2000,
     max_depth: int | None = None,
     timeout: float = 300.0,
+    concurrency: int = 2,
     existing: ContextWeb | None = None,
     progress_callback: Callable[[int, int, int], None] | None = None,
 ) -> ContextWeb:
@@ -51,6 +51,7 @@ async def crawl(
         max_nodes: Maximum number of posts to collect.
         max_depth: Maximum BFS hop distance from start post (None = unlimited).
         timeout: Maximum wall-clock seconds for the entire crawl.
+        concurrency: Maximum number of concurrent API requests.
         existing: Optional existing ContextWeb to merge into. When provided,
             the crawler skips getQuotes calls for posts whose quote_count
             hasn't changed, saving API calls.
@@ -61,6 +62,7 @@ async def crawl(
         max_nodes=max_nodes,
         max_depth=max_depth,
         timeout=timeout,
+        concurrency=concurrency,
         progress_callback=progress_callback,
     )
     return await crawler.crawl(start_uri, existing=existing)
@@ -85,22 +87,29 @@ class Crawler:
         max_nodes: int = 2000,
         max_depth: int | None = None,
         timeout: float = 300.0,
+        concurrency: int = 2,
         progress_callback: Callable[[int, int, int], None] | None = None,
     ) -> None:
         self.client = client
         self.max_nodes = max_nodes
         self.max_depth = max_depth
         self.timeout = timeout
+        self.concurrency = concurrency
         self.progress_callback = progress_callback
 
         # Per-crawl state, initialized in crawl()
         self.web: ContextWeb = None  # type: ignore[assignment]
-        self.queue: deque[tuple[str, int]] = deque()
+        self.queue: asyncio.Queue[tuple[str, int]] = asyncio.Queue()
         self.visited_threads: set[str] = set()
         self.visited_quotes: set[str] = set()
+        self._enqueued: set[str] = set()
         self.old_edge_counts: dict[str, int] = {}
         self.handle_to_did: dict[str, str] = {}
         self.deadline: float = 0.0
+        self._sem: asyncio.Semaphore = asyncio.Semaphore(concurrency)
+        self._stop: asyncio.Event = asyncio.Event()
+        self._rate_ok: asyncio.Event = asyncio.Event()
+        self._rate_ok.set()  # starts open
 
     async def crawl(
         self,
@@ -127,56 +136,28 @@ class Crawler:
                 crawled_at=datetime.now(timezone.utc).isoformat(),
             )
 
-        self.queue = deque([(start_uri, 0)])
+        self.queue = asyncio.Queue()
         self.visited_threads = set()
         self.visited_quotes = set()
+        self._enqueued = set()
         self.handle_to_did = {}
         self.deadline = time.monotonic() + self.timeout
+        self._sem = asyncio.Semaphore(self.concurrency)
+        self._stop = asyncio.Event()
+        self._rate_ok = asyncio.Event()
+        self._rate_ok.set()
 
-        # BFS loop
-        while self.queue and self.web.node_count < self.max_nodes:
-            if time.monotonic() > self.deadline:
-                break
+        self._enqueue(start_uri, 0)
 
-            uri, depth = self.queue.popleft()
-            if self.max_depth is not None and depth > self.max_depth:
-                continue
-
-            known_root = self.web.thread_root_for(uri)
-            if known_root and known_root in self.visited_threads:
-                continue
-
-            actual_root = await self._fetch_thread(uri, depth)
-            if actual_root:
-                self.visited_threads.add(actual_root)
-
-            # Fetch quotes for all posts we haven't checked yet
-            all_posts = self.web.nodes
-            to_check = [u for u in all_posts if u not in self.visited_quotes]
-            for post_uri in to_check:
-                if (
-                    self.web.node_count >= self.max_nodes
-                    or time.monotonic() > self.deadline
-                ):
-                    break
-                self.visited_quotes.add(post_uri)
-
-                current_quote_count = all_posts[post_uri].quote_count
-                if current_quote_count == 0:
-                    continue
-
-                if post_uri in self.old_edge_counts:
-                    if current_quote_count <= self.old_edge_counts[post_uri]:
-                        continue
-
-                await self._fetch_quotes(post_uri, depth)
-
-            if self.progress_callback:
-                self.progress_callback(
-                    self.web.node_count,
-                    self.web.edge_count,
-                    self.web.thread_count,
-                )
+        # Launch worker pool
+        workers = [
+            asyncio.create_task(self._worker())
+            for _ in range(self.concurrency)
+        ]
+        await self.queue.join()
+        for w in workers:
+            w.cancel()
+        await asyncio.gather(*workers, return_exceptions=True)
 
         # Log why the crawl stopped
         if time.monotonic() > self.deadline:
@@ -205,6 +186,74 @@ class Crawler:
             self.web.root_uri = self.web.get_post(start_uri).uri
 
         return self.web
+
+    # ---------------------------------------------------------------
+    # Worker and queue management
+    # ---------------------------------------------------------------
+
+    def _enqueue(self, uri: str, depth: int) -> None:
+        """Add a URI to the work queue if not already enqueued."""
+        if uri not in self._enqueued:
+            self._enqueued.add(uri)
+            self.queue.put_nowait((uri, depth))
+
+    def _should_stop(self) -> bool:
+        return (
+            self.web.node_count >= self.max_nodes
+            or time.monotonic() > self.deadline
+            or self._stop.is_set()
+        )
+
+    async def _worker(self) -> None:
+        """BFS worker: fetch threads and their quotes from the queue."""
+        while True:
+            uri, depth = await self.queue.get()
+            try:
+                # Skip work if we should stop, but still call task_done
+                if self._should_stop():
+                    continue
+
+                if self.max_depth is not None and depth > self.max_depth:
+                    continue
+
+                known_root = self.web.thread_root_for(uri)
+                if known_root and known_root in self.visited_threads:
+                    continue
+
+                actual_root = await self._fetch_thread(uri, depth)
+                if actual_root:
+                    self.visited_threads.add(actual_root)
+
+                # Fetch quotes for all posts we haven't checked yet
+                await self._fetch_quotes_for_pending(depth)
+
+                if self.progress_callback:
+                    self.progress_callback(
+                        self.web.node_count,
+                        self.web.edge_count,
+                        self.web.thread_count,
+                    )
+            finally:
+                self.queue.task_done()
+
+    async def _fetch_quotes_for_pending(self, depth: int) -> None:
+        """Fetch quotes for all unchecked posts currently in the web."""
+        all_posts = self.web.nodes
+        to_check = [u for u in all_posts if u not in self.visited_quotes]
+        for post_uri in to_check:
+            if self._should_stop():
+                break
+            self.visited_quotes.add(post_uri)
+
+            current_quote_count = all_posts[post_uri].quote_count
+            if current_quote_count == 0:
+                continue
+
+            if post_uri in self.old_edge_counts:
+                if current_quote_count <= self.old_edge_counts[post_uri]:
+                    continue
+
+            await self._fetch_quotes(post_uri, depth)
 
     # ---------------------------------------------------------------
     # Handle → DID resolution
@@ -246,10 +295,13 @@ class Crawler:
         Returns the thread root URI, or None on failure.
         """
         try:
-            resp = await _retry(
-                self.client.app.bsky.feed.get_post_thread,
-                params={"uri": uri, "depth": 1000, "parentHeight": 1000},
-            )
+            await self._rate_ok.wait()
+            async with self._sem:
+                resp = await _retry(
+                    self.client.app.bsky.feed.get_post_thread,
+                    params={"uri": uri, "depth": 1000, "parentHeight": 1000},
+                    rate_event=self._rate_ok,
+                )
         except Exception as e:
             logger.warning("Failed to fetch thread for %s: %s", uri, e)
             return None
@@ -328,7 +380,7 @@ class Crawler:
                 )
                 if not self.web.thread_root_for(resolved):
                     if self.max_depth is None or depth + 1 <= self.max_depth:
-                        self.queue.append((post.embed_uri, depth + 1))
+                        self._enqueue(post.embed_uri, depth + 1)
 
             # Detect quote-like references in link facets
             for facet in post.facets:
@@ -359,7 +411,7 @@ class Crawler:
                             self.max_depth is None
                             or depth + 1 <= self.max_depth
                         ):
-                            self.queue.append((facet_uri, depth + 1))
+                            self._enqueue(facet_uri, depth + 1)
 
         return thread_root_uri
 
@@ -377,10 +429,13 @@ class Crawler:
                 params: dict[str, Any] = {"uri": uri, "limit": 100}
                 if cursor:
                     params["cursor"] = cursor
-                resp = await _retry(
-                    self.client.app.bsky.feed.get_quotes,
-                    params=params,
-                )
+                await self._rate_ok.wait()
+                async with self._sem:
+                    resp = await _retry(
+                        self.client.app.bsky.feed.get_quotes,
+                        params=params,
+                        rate_event=self._rate_ok,
+                    )
             except Exception as e:
                 logger.warning("Failed to fetch quotes for %s: %s", uri, e)
                 break
@@ -414,7 +469,11 @@ class Crawler:
                         self.max_depth is None
                         or depth + 1 <= self.max_depth
                     ):
-                        self.queue.append((post.uri, depth + 1))
+                        # Enqueue the thread root when known (from reply_root),
+                        # otherwise the post URI itself
+                        self._enqueue(
+                            post.reply_root or post.uri, depth + 1,
+                        )
 
             cursor = getattr(resp, "cursor", None)
             if not cursor:
@@ -426,7 +485,7 @@ class Crawler:
 # ===================================================================
 
 
-async def _retry(coro_factory, *args, **kwargs):
+async def _retry(coro_factory, *args, rate_event: asyncio.Event | None = None, **kwargs):
     """Retry an async call with exponential backoff on rate limit or transient errors."""
     for attempt in range(MAX_RETRIES):
         try:
@@ -448,12 +507,16 @@ async def _retry(coro_factory, *args, **kwargs):
                 else:
                     delay = BASE_DELAY * (2**attempt)
                 logger.info(
-                    "Rate limited (429), retrying in %.1fs (attempt %d/%d)",
+                    "Rate limited (429), pausing all requests for %.1fs (attempt %d/%d)",
                     delay,
                     attempt + 1,
                     MAX_RETRIES,
                 )
+                if rate_event is not None:
+                    rate_event.clear()  # block all other workers
                 await asyncio.sleep(delay)
+                if rate_event is not None:
+                    rate_event.set()  # release all workers
             else:
                 raise
         except InvokeTimeoutError:

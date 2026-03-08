@@ -31,10 +31,12 @@ def main():
               help="Discard stored version and crawl from scratch. "
                    "Use when quotes may have been deleted and recreated "
                    "(smart re-fetch can miss these since it checks counts, not URIs).")
+@click.option("--concurrency", "-c", default=2, show_default=True,
+              help="Maximum concurrent API requests.")
 @click.option("--verbose", "-v", is_flag=True, default=False,
               help="Show detailed logging (rate limits, retries, errors).")
 def fetch(post_url: str, max_nodes: int, max_depth: int | None, timeout: float,
-          fresh: bool, verbose: bool):
+          fresh: bool, concurrency: int, verbose: bool):
     """Crawl a Bluesky conversation graph starting from POST_URL.
 
     POST_URL can be an AT URI or a bsky.app URL.
@@ -99,6 +101,7 @@ def fetch(post_url: str, max_nodes: int, max_depth: int | None, timeout: float,
             max_nodes=max_nodes,
             max_depth=max_depth,
             timeout=timeout,
+            concurrency=concurrency,
             existing=existing,
             progress_callback=_progress,
         )
