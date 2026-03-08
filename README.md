@@ -1,4 +1,4 @@
-# bsky-context
+# Bluesky Crawler
 
 Crawl the full conversation graph of a Bluesky post — not just the linear thread, but the complete DAG of replies **and** quote posts, recursively.
 
@@ -27,12 +27,12 @@ Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
 
 ```bash
 # Clone and install
-git clone https://github.com/Iteratrix/bsky-context.git
+git clone https://github.com/Iteratrix/bluesky-crawler.git
 cd bsky-context
 uv sync
 
 # Or install globally as a CLI tool
-uv tool install git+https://github.com/Iteratrix/bsky-context.git
+uv tool install git+https://github.com/Iteratrix/bluesky-crawler.git
 ```
 
 ## Setup

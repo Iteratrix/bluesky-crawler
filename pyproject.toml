@@ -17,8 +17,8 @@ dependencies = [
 bsky-context = "bsky_context.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/Iteratrix/bsky-context"
-Repository = "https://github.com/Iteratrix/bsky-context"
+Homepage = "https://github.com/Iteratrix/bluesky-crawler"
+Repository = "https://github.com/Iteratrix/bluesky-crawler"
 
 [build-system]
 requires = ["uv_build>=0.9.28,<0.10.0"]
