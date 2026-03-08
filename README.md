@@ -82,6 +82,7 @@ bsky-context fetch <url> --max-nodes 500    # cap at 500 posts
 bsky-context fetch <url> --max-depth 3      # max 3 hops from start post
 bsky-context fetch <url> --timeout 120      # 2 minute time limit
 bsky-context fetch <url> --fresh            # discard stored version, crawl from scratch
+bsky-context fetch <url> -c 4              # use 4 concurrent API requests (default: 2)
 ```
 
 Re-running `fetch` on a previously crawled post automatically loads the existing web and merges in new posts. Posts whose quote count hasn't changed are skipped for quote-fetching, making updates fast. In the rare case where a quote is deleted and a new one is created between crawls (keeping the count the same), the new quote won't be detected â€” use `--fresh` to force a complete re-crawl.
@@ -106,7 +107,7 @@ Then Claude Code can fetch and analyze Bluesky conversations mid-conversation â€
 4. **Store** the complete graph as JSON in `~/.local/share/bsky-context/webs/`
 5. **Render** through lenses on demand
 
-The crawl is a thread-level BFS: each thread (reply tree) is the atomic unit, fetched in one API call, and quotes are the inter-thread links that drive further exploration. Thread-level deduplication means if two quote posts point into the same thread, it's only fetched once. Rate-limit backoff and configurable depth/breadth/timeout limits keep things under control.
+The crawl is a parallel thread-level BFS: each thread (reply tree) is the atomic unit, fetched in one API call, and quotes are the inter-thread links that drive further exploration. Multiple threads are fetched concurrently via an asyncio worker pool (default: 2 concurrent requests), with a global rate-limit pause that blocks all workers on 429 responses. Thread-level deduplication means if two quote posts point into the same thread, it's only fetched once. Configurable depth/breadth/timeout/concurrency limits keep things under control.
 
 ## Storage
 
