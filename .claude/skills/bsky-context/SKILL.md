@@ -34,13 +34,14 @@ bsky-context auth login --handle <HANDLE> --app-password <APP_PASSWORD>
 ## Fetching a conversation
 
 ```bash
-bsky-context fetch "<POST_URL>" [--max-nodes 2000] [--max-depth N] [--timeout 300]
+bsky-context fetch "<POST_URL>" [--max-nodes 2000] [--max-depth N] [--timeout 300] [-c 2]
 ```
 
 - `POST_URL`: A `https://bsky.app/profile/.../post/...` URL or `at://` URI
 - Prints a **web ID** to stdout (e.g. `abc123-a1b2c3`) for use with `show`
 - **Automatically updates**: If a previous crawl exists for this post, it loads it and merges in new posts. Only posts with changed quote counts are re-checked for new quotes, saving API calls.
 - Use `--fresh` to discard any stored version and crawl from scratch.
+- Use `-c N` to control concurrent API requests (default: 2). Higher values crawl faster but risk hitting rate limits.
 
 ## Viewing a conversation
 
