@@ -21,22 +21,52 @@ def main():
 
 @main.command()
 @click.argument("post_url")
-@click.option("--max-nodes", default=2000, show_default=True,
-              help="Maximum posts to crawl.")
-@click.option("--max-depth", default=None, type=int,
-              help="Maximum BFS hop distance from start post.")
-@click.option("--timeout", default=300.0, show_default=True,
-              help="Maximum wall-clock seconds for the crawl.")
-@click.option("--fresh", is_flag=True, default=False,
-              help="Discard stored version and crawl from scratch. "
-                   "Use when quotes may have been deleted and recreated "
-                   "(smart re-fetch can miss these since it checks counts, not URIs).")
-@click.option("--concurrency", "-c", default=2, show_default=True,
-              help="Maximum concurrent API requests.")
-@click.option("--verbose", "-v", is_flag=True, default=False,
-              help="Show detailed logging (rate limits, retries, errors).")
-def fetch(post_url: str, max_nodes: int, max_depth: int | None, timeout: float,
-          fresh: bool, concurrency: int, verbose: bool):
+@click.option(
+    "--max-nodes", default=2000, show_default=True, help="Maximum posts to crawl."
+)
+@click.option(
+    "--max-depth",
+    default=None,
+    type=int,
+    help="Maximum BFS hop distance from start post.",
+)
+@click.option(
+    "--timeout",
+    default=300.0,
+    show_default=True,
+    help="Maximum wall-clock seconds for the crawl.",
+)
+@click.option(
+    "--fresh",
+    is_flag=True,
+    default=False,
+    help="Discard stored version and crawl from scratch. "
+    "Use when quotes may have been deleted and recreated "
+    "(smart re-fetch can miss these since it checks counts, not URIs).",
+)
+@click.option(
+    "--concurrency",
+    "-c",
+    default=2,
+    show_default=True,
+    help="Maximum concurrent API requests.",
+)
+@click.option(
+    "--verbose",
+    "-v",
+    is_flag=True,
+    default=False,
+    help="Show detailed logging (rate limits, retries, errors).",
+)
+def fetch(
+    post_url: str,
+    max_nodes: int,
+    max_depth: int | None,
+    timeout: float,
+    fresh: bool,
+    concurrency: int,
+    verbose: bool,
+):
     """Crawl a Bluesky conversation graph starting from POST_URL.
 
     POST_URL can be an AT URI or a bsky.app URL.
@@ -91,8 +121,10 @@ def fetch(post_url: str, max_nodes: int, max_depth: int | None, timeout: float,
         def _progress(nodes: int, edges: int, threads: int) -> None:
             elapsed = time.monotonic() - t0
             click.echo(
-                f"\r  Crawling... {nodes} posts, {threads} threads, {edges} edges ({elapsed:.0f}s)",
-                nl=False, err=True,
+                f"\r  Crawling... {nodes} posts, {threads} threads, "
+                f"{edges} edges ({elapsed:.0f}s)",
+                nl=False,
+                err=True,
             )
 
         web = await crawl(
@@ -110,7 +142,8 @@ def fetch(post_url: str, max_nodes: int, max_depth: int | None, timeout: float,
         path = save_web(web)
         click.echo("", err=True)  # newline after progress
         click.echo(
-            f"  Done in {elapsed:.1f}s: {web.node_count} posts, {web.thread_count} threads, {web.edge_count} edges",
+            f"  Done in {elapsed:.1f}s: {web.node_count} posts, "
+            f"{web.thread_count} threads, {web.edge_count} edges",
             err=True,
         )
         click.echo(f"  Saved: {path.stem}", err=True)
@@ -122,25 +155,47 @@ def fetch(post_url: str, max_nodes: int, max_depth: int | None, timeout: float,
 
 @main.command()
 @click.argument("web_id")
-@click.option("--lens", "-l", default="tree",
-              type=click.Choice(["tree", "linear", "by-author", "raw",
-                                 "stats", "threads", "highlights",
-                                 "neighborhood", "timeline", "search"]),
-              help="View to render.")
-@click.option("--hops", default=None, type=int,
-              help="Quote-chain hops (neighborhood lens).")
-@click.option("--uri", default=None,
-              help="Target post URI (neighborhood lens).")
-@click.option("--after", default=None,
-              help="Show posts after this ISO timestamp (timeline lens).")
-@click.option("--before", default=None,
-              help="Show posts before this ISO timestamp (timeline lens).")
-@click.option("--query", "-q", default=None,
-              help="Text search query (search lens).")
-@click.option("--author", default=None,
-              help="Filter by author handle (search lens).")
-@click.option("--top", "-n", default=None, type=int,
-              help="Number of results (threads/highlights lens).")
+@click.option(
+    "--lens",
+    "-l",
+    default="tree",
+    type=click.Choice(
+        [
+            "tree",
+            "linear",
+            "by-author",
+            "raw",
+            "stats",
+            "threads",
+            "highlights",
+            "neighborhood",
+            "timeline",
+            "search",
+        ]
+    ),
+    help="View to render.",
+)
+@click.option(
+    "--hops", default=None, type=int, help="Quote-chain hops (neighborhood lens)."
+)
+@click.option("--uri", default=None, help="Target post URI (neighborhood lens).")
+@click.option(
+    "--after", default=None, help="Show posts after this ISO timestamp (timeline lens)."
+)
+@click.option(
+    "--before",
+    default=None,
+    help="Show posts before this ISO timestamp (timeline lens).",
+)
+@click.option("--query", "-q", default=None, help="Text search query (search lens).")
+@click.option("--author", default=None, help="Filter by author handle (search lens).")
+@click.option(
+    "--top",
+    "-n",
+    default=None,
+    type=int,
+    help="Number of results (threads/highlights lens).",
+)
 def show(web_id: str, lens: str, **kwargs):
     """Render a stored context web through a lens.
 
@@ -164,7 +219,9 @@ def list_cmd():
         click.echo("No stored context webs.", err=True)
         return
     for w in webs:
-        click.echo(f"{w['id']}  {w['nodes']} posts  {w.get('threads', '?')} threads  {w['crawled_at']}")
+        click.echo(
+            f"{w['id']}  {w['nodes']} posts  {w.get('threads', '?')} threads  {w['crawled_at']}"
+        )
         click.echo(f"  {w['root_uri']}")
 
 

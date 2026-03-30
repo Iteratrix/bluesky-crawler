@@ -18,12 +18,13 @@ from __future__ import annotations
 
 import json
 from collections import deque
+from collections.abc import Callable
 
 from bsky_context.models import ContextWeb, Post, converter
 
 
 def render(web: ContextWeb, lens: str = "tree", **kwargs) -> str:
-    renderers = {
+    renderers: dict[str, Callable[..., str]] = {
         "tree": render_tree,
         "linear": render_linear,
         "by-author": render_by_author,
@@ -45,6 +46,7 @@ def render(web: ContextWeb, lens: str = "tree", **kwargs) -> str:
 # Shared helpers
 # ---------------------------------------------------------------------------
 
+
 def _short_time(iso: str) -> str:
     """Shorten an ISO timestamp to a readable form."""
     # "2026-01-15T10:05:30.123Z" -> "2026-01-15 10:05"
@@ -63,7 +65,7 @@ def _truncate(text: str, max_len: int = 80) -> str:
     text = text.replace("\n", " ").strip()
     if len(text) <= max_len:
         return text
-    return text[:max_len - 3] + "..."
+    return text[: max_len - 3] + "..."
 
 
 def _engagement(post: Post) -> int:
@@ -123,10 +125,13 @@ def _find_tree_root(web: ContextWeb) -> str:
 # Tree lens
 # ---------------------------------------------------------------------------
 
+
 def render_tree(web: ContextWeb, **kwargs) -> str:
     """Indented threaded view — DFS from root, replies and quotes nested."""
     nodes = web.nodes
-    children: dict[str, list[tuple[str, str]]] = {}  # uri -> [(child_uri, "reply"|"quote")]
+    children: dict[
+        str, list[tuple[str, str]]
+    ] = {}  # uri -> [(child_uri, "reply"|"quote")]
 
     # Reply edges: from reply_parent within threads
     for thread in web.threads.values():
@@ -169,10 +174,13 @@ def render_tree(web: ContextWeb, **kwargs) -> str:
 
         # Children: replies first (chronological), then quotes
         kids = children.get(uri, [])
-        kids_sorted = sorted(kids, key=lambda x: (
-            0 if x[1] == "reply" else 1,
-            nodes[x[0]].created_at if x[0] in nodes else "",
-        ))
+        kids_sorted = sorted(
+            kids,
+            key=lambda x: (
+                0 if x[1] == "reply" else 1,
+                nodes[x[0]].created_at if x[0] in nodes else "",
+            ),
+        )
         for child_uri, child_type in kids_sorted:
             _render(child_uri, depth + 1, child_type)
 
@@ -191,6 +199,7 @@ def render_tree(web: ContextWeb, **kwargs) -> str:
 # Linear lens
 # ---------------------------------------------------------------------------
 
+
 def render_linear(web: ContextWeb, **kwargs) -> str:
     """Chronological narrative — each post numbered with context annotations."""
     nodes = web.nodes
@@ -207,7 +216,9 @@ def render_linear(web: ContextWeb, **kwargs) -> str:
         if post.reply_parent and post.reply_parent in uri_to_idx:
             parent_post = nodes.get(post.reply_parent)
             parent_handle = f"@{parent_post.author.handle}" if parent_post else "?"
-            ctx_parts.append(f"replying to {parent_handle} #{uri_to_idx[post.reply_parent]}")
+            ctx_parts.append(
+                f"replying to {parent_handle} #{uri_to_idx[post.reply_parent]}"
+            )
         if post.embed_uri and post.embed_uri in uri_to_idx:
             quoted_post = nodes.get(post.embed_uri)
             quoted_handle = f"@{quoted_post.author.handle}" if quoted_post else "?"
@@ -226,6 +237,7 @@ def render_linear(web: ContextWeb, **kwargs) -> str:
 # ---------------------------------------------------------------------------
 # By-author lens
 # ---------------------------------------------------------------------------
+
 
 def render_by_author(web: ContextWeb, **kwargs) -> str:
     """Grouped by participant — shows each person's contributions."""
@@ -259,7 +271,6 @@ def render_by_author(web: ContextWeb, **kwargs) -> str:
     lines: list[str] = []
     lines.append(f"=== PARTICIPANTS ({len(author_order)}) ===")
     for did, posts in author_order:
-        author = posts[0].author
         name = _author_name(posts[0])
         tags: list[str] = []
         if did == root_did:
@@ -267,11 +278,12 @@ def render_by_author(web: ContextWeb, **kwargs) -> str:
         if any(p.uri in quote_targets for p in posts):
             tags.append("via quote")
         tag_str = f"  [{', '.join(tags)}]" if tags else ""
-        lines.append(f"  {name} - {len(posts)} post{'s' if len(posts) != 1 else ''}{tag_str}")
+        lines.append(
+            f"  {name} - {len(posts)} post{'s' if len(posts) != 1 else ''}{tag_str}"
+        )
     lines.append("")
 
-    for did, posts in author_order:
-        author = posts[0].author
+    for _did, posts in author_order:
         name = _author_name(posts[0])
         lines.append(f"=== {name} ===")
 
@@ -298,6 +310,7 @@ def render_by_author(web: ContextWeb, **kwargs) -> str:
 # Raw lens
 # ---------------------------------------------------------------------------
 
+
 def render_raw(web: ContextWeb, **kwargs) -> str:
     """JSON dump of the full graph."""
     return json.dumps(converter.unstructure(web), indent=2, ensure_ascii=False)
@@ -307,6 +320,7 @@ def render_raw(web: ContextWeb, **kwargs) -> str:
 # Stats lens
 # ---------------------------------------------------------------------------
 
+
 def render_stats(web: ContextWeb, **kwargs) -> str:
     """Summary statistics — quick overview of a context web."""
     lines: list[str] = []
@@ -314,9 +328,7 @@ def render_stats(web: ContextWeb, **kwargs) -> str:
     lines.append("")
 
     # Counts
-    reply_edges = sum(
-        1 for p in web.iter_posts() if p.reply_parent
-    )
+    reply_edges = sum(1 for p in web.iter_posts() if p.reply_parent)
     lines.append(f"Posts: {web.node_count:,} across {web.thread_count:,} threads")
     lines.append(
         f"Edges: {reply_edges:,} reply + {len(web.quote_edges):,} quote "
@@ -326,7 +338,9 @@ def render_stats(web: ContextWeb, **kwargs) -> str:
     # Time span
     times = [p.created_at for p in web.iter_posts() if p.created_at]
     if times:
-        lines.append(f"Time span: {_short_time(min(times))} to {_short_time(max(times))}")
+        lines.append(
+            f"Time span: {_short_time(min(times))} to {_short_time(max(times))}"
+        )
     lines.append("")
 
     # Thread size distribution
@@ -353,9 +367,11 @@ def render_stats(web: ContextWeb, **kwargs) -> str:
         if handle not in author_counts:
             author_counts[handle] = (_author_name(post), 0)
         author_counts[handle] = (author_counts[handle][0], author_counts[handle][1] + 1)
-    top_authors = sorted(author_counts.items(), key=lambda x: x[1][1], reverse=True)[:10]
+    top_authors = sorted(author_counts.items(), key=lambda x: x[1][1], reverse=True)[
+        :10
+    ]
     lines.append("Top authors by post count:")
-    for i, (handle, (name, count)) in enumerate(top_authors, 1):
+    for i, (_handle, (name, count)) in enumerate(top_authors, 1):
         lines.append(f"  {i:2d}. {name} - {count:,} posts")
     lines.append("")
 
@@ -393,9 +409,12 @@ def render_stats(web: ContextWeb, **kwargs) -> str:
 # Threads lens
 # ---------------------------------------------------------------------------
 
+
 def render_threads(web: ContextWeb, *, top: int = 20, **kwargs) -> str:
     """List threads sorted by size."""
-    thread_info: list[tuple[int, int, str, str, str]] = []  # (size, engagement, name, text, uri)
+    thread_info: list[
+        tuple[int, int, str, str, str]
+    ] = []  # (size, engagement, name, text, uri)
     for thread in web.threads.values():
         size = len(thread.posts)
         eng = sum(_engagement(p) for p in thread.posts.values())
@@ -418,7 +437,9 @@ def render_threads(web: ContextWeb, *, top: int = 20, **kwargs) -> str:
     thread_info.sort(key=lambda x: x[0], reverse=True)
 
     lines: list[str] = []
-    lines.append(f"=== THREADS ({web.thread_count:,} total, showing top {min(top, len(thread_info))}) ===")
+    lines.append(
+        f"=== THREADS ({web.thread_count:,} total, showing top {min(top, len(thread_info))}) ==="
+    )
     lines.append("")
     for i, (size, eng, name, text, uri) in enumerate(thread_info[:top], 1):
         lines.append(f"#{i:<3d} {size:,} posts | {eng:,} engagement | {name}")
@@ -433,9 +454,9 @@ def render_threads(web: ContextWeb, *, top: int = 20, **kwargs) -> str:
 # Highlights lens
 # ---------------------------------------------------------------------------
 
+
 def render_highlights(web: ContextWeb, *, top: int = 10, **kwargs) -> str:
     """Surface the most notable posts and authors."""
-    nodes = web.nodes
     lines: list[str] = []
     lines.append("=== HIGHLIGHTS ===")
     lines.append("")
@@ -443,28 +464,40 @@ def render_highlights(web: ContextWeb, *, top: int = 10, **kwargs) -> str:
     # Most quoted
     quotes_received = _build_quotes_received(web)
     if quotes_received:
-        top_quoted = sorted(quotes_received.items(), key=lambda x: x[1], reverse=True)[:top]
+        top_quoted = sorted(quotes_received.items(), key=lambda x: x[1], reverse=True)[
+            :top
+        ]
         lines.append("--- Most Quoted ---")
         for i, (uri, count) in enumerate(top_quoted, 1):
             post = web.get_post(uri)
             if not post:
                 continue
-            lines.append(f"  {i}. [quoted {count} times] {_author_name(post)}  {_short_time(post.created_at)}")
+            lines.append(
+                f"  {i}. [quoted {count} times] {_author_name(post)}  "
+                f"{_short_time(post.created_at)}"
+            )
             lines.append(f"     {_truncate(post.text)}")
-            lines.append(f"     ({post.like_count:,} likes, {post.repost_count:,} reposts)")
+            lines.append(
+                f"     ({post.like_count:,} likes, {post.repost_count:,} reposts)"
+            )
             lines.append("")
 
     # Most replied (in-web reply count)
     children = _build_children(web)
     if children:
         reply_counts = {uri: len(kids) for uri, kids in children.items()}
-        top_replied = sorted(reply_counts.items(), key=lambda x: x[1], reverse=True)[:top]
+        top_replied = sorted(reply_counts.items(), key=lambda x: x[1], reverse=True)[
+            :top
+        ]
         lines.append("--- Most Replied ---")
         for i, (uri, count) in enumerate(top_replied, 1):
             post = web.get_post(uri)
             if not post:
                 continue
-            lines.append(f"  {i}. [{count} replies in web] {_author_name(post)}  {_short_time(post.created_at)}")
+            lines.append(
+                f"  {i}. [{count} replies in web] {_author_name(post)}  "
+                f"{_short_time(post.created_at)}"
+            )
             lines.append(f"     {_truncate(post.text)}")
             lines.append("")
 
@@ -480,16 +513,20 @@ def render_highlights(web: ContextWeb, *, top: int = 10, **kwargs) -> str:
         lines.append("")
 
     # Main characters — authors by total engagement received
-    author_eng: dict[str, tuple[str, int]] = {}  # handle -> (display_name, total_engagement)
+    author_eng: dict[
+        str, tuple[str, int]
+    ] = {}  # handle -> (display_name, total_engagement)
     for post in web.iter_posts():
         handle = post.author.handle
         eng = _engagement(post)
         if handle not in author_eng:
             author_eng[handle] = (_author_name(post), 0)
         author_eng[handle] = (author_eng[handle][0], author_eng[handle][1] + eng)
-    top_characters = sorted(author_eng.items(), key=lambda x: x[1][1], reverse=True)[:top]
+    top_characters = sorted(author_eng.items(), key=lambda x: x[1][1], reverse=True)[
+        :top
+    ]
     lines.append("--- Main Characters (by total engagement) ---")
-    for i, (handle, (name, eng)) in enumerate(top_characters, 1):
+    for i, (_handle, (name, eng)) in enumerate(top_characters, 1):
         lines.append(f"  {i}. {name} - {eng:,} total engagement")
     lines.append("")
 
@@ -500,7 +537,10 @@ def render_highlights(web: ContextWeb, *, top: int = 10, **kwargs) -> str:
 # Neighborhood lens
 # ---------------------------------------------------------------------------
 
-def render_neighborhood(web: ContextWeb, *, uri: str | None = None, hops: int = 2, **kwargs) -> str:
+
+def render_neighborhood(
+    web: ContextWeb, *, uri: str | None = None, hops: int = 2, **kwargs
+) -> str:
     """Render posts within N quote-hops of a target post."""
     target_uri = uri or web.root_uri
     target_thread = web.thread_root_for(target_uri)
@@ -528,7 +568,10 @@ def render_neighborhood(web: ContextWeb, *, uri: str | None = None, hops: int = 
 
     lines: list[str] = []
     lines.append(f"=== NEIGHBORHOOD ({hops} hops from target) ===")
-    lines.append(f"Posts: {len(nodes):,} of {web.node_count:,} | Threads: {len(included_threads):,} of {web.thread_count:,}")
+    lines.append(
+        f"Posts: {len(nodes):,} of {web.node_count:,} | "
+        f"Threads: {len(included_threads):,} of {web.thread_count:,}"
+    )
     lines.append("")
 
     # DFS render (same logic as tree lens but with filtered nodes)
@@ -564,10 +607,13 @@ def render_neighborhood(web: ContextWeb, *, uri: str | None = None, hops: int = 
         lines.append("")
 
         kids = children.get(post_uri, [])
-        kids_sorted = sorted(kids, key=lambda x: (
-            0 if x[1] == "reply" else 1,
-            nodes[x[0]].created_at if x[0] in nodes else "",
-        ))
+        kids_sorted = sorted(
+            kids,
+            key=lambda x: (
+                0 if x[1] == "reply" else 1,
+                nodes[x[0]].created_at if x[0] in nodes else "",
+            ),
+        )
         for child_uri, child_type in kids_sorted:
             _render(child_uri, depth + 1, child_type)
 
@@ -585,7 +631,10 @@ def render_neighborhood(web: ContextWeb, *, uri: str | None = None, hops: int = 
 # Timeline lens
 # ---------------------------------------------------------------------------
 
-def render_timeline(web: ContextWeb, *, after: str | None = None, before: str | None = None, **kwargs) -> str:
+
+def render_timeline(
+    web: ContextWeb, *, after: str | None = None, before: str | None = None, **kwargs
+) -> str:
     """Time-windowed chronological view."""
     nodes = web.nodes
     posts = sorted(nodes.values(), key=lambda p: p.created_at)
@@ -623,7 +672,9 @@ def render_timeline(web: ContextWeb, *, after: str | None = None, before: str | 
             if parent_post:
                 parent_handle = f"@{parent_post.author.handle}"
                 if post.reply_parent in uri_to_idx:
-                    ctx_parts.append(f"replying to {parent_handle} #{uri_to_idx[post.reply_parent]}")
+                    ctx_parts.append(
+                        f"replying to {parent_handle} #{uri_to_idx[post.reply_parent]}"
+                    )
                 else:
                     ctx_parts.append(f"replying to {parent_handle}")
         if post.embed_uri:
@@ -631,7 +682,9 @@ def render_timeline(web: ContextWeb, *, after: str | None = None, before: str | 
             if quoted_post:
                 quoted_handle = f"@{quoted_post.author.handle}"
                 if post.embed_uri in uri_to_idx:
-                    ctx_parts.append(f"quoting {quoted_handle} #{uri_to_idx[post.embed_uri]}")
+                    ctx_parts.append(
+                        f"quoting {quoted_handle} #{uri_to_idx[post.embed_uri]}"
+                    )
                 else:
                     ctx_parts.append(f"quoting {quoted_handle}")
 
@@ -649,7 +702,10 @@ def render_timeline(web: ContextWeb, *, after: str | None = None, before: str | 
 # Search lens
 # ---------------------------------------------------------------------------
 
-def render_search(web: ContextWeb, *, query: str | None = None, author: str | None = None, **kwargs) -> str:
+
+def render_search(
+    web: ContextWeb, *, query: str | None = None, author: str | None = None, **kwargs
+) -> str:
     """Filter posts by text content and/or author handle."""
     if not query and not author:
         return "No search criteria provided. Use --query and/or --author."
@@ -673,8 +729,10 @@ def render_search(web: ContextWeb, *, query: str | None = None, author: str | No
         filter_desc.append(f'query: "{query}"')
     if author:
         filter_desc.append(f"author: {author}")
-    lines.append(f"=== SEARCH RESULTS ===")
-    lines.append(f"{' | '.join(filter_desc)} | {len(matches):,} matches in {web.node_count:,} posts")
+    lines.append("=== SEARCH RESULTS ===")
+    lines.append(
+        f"{' | '.join(filter_desc)} | {len(matches):,} matches in {web.node_count:,} posts"
+    )
     lines.append("")
 
     for i, post in enumerate(matches, 1):
@@ -700,7 +758,10 @@ def render_search(web: ContextWeb, *, query: str | None = None, author: str | No
 
         lines.append(f"    {_truncate(post.text, 120)}")
         if _engagement(post) > 0:
-            lines.append(f"    ({post.like_count:,} likes, {post.repost_count:,} reposts, {post.quote_count:,} quotes)")
+            lines.append(
+                f"    ({post.like_count:,} likes, {post.repost_count:,} reposts, "
+                f"{post.quote_count:,} quotes)"
+            )
         lines.append("")
 
     return "\n".join(lines).rstrip()

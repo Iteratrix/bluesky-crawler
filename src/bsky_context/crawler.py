@@ -6,8 +6,9 @@ import asyncio
 import logging
 import re
 import time
-from datetime import datetime, timezone
-from typing import Any, Callable
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import Any
 
 from atproto import AsyncClient
 from atproto_client.exceptions import (
@@ -126,14 +127,14 @@ class Crawler:
                     self.old_edge_counts.get(qe.source, 0) + 1
                 )
             self.web = existing
-            self.web.crawled_at = datetime.now(timezone.utc).isoformat()
+            self.web.crawled_at = datetime.now(UTC).isoformat()
             # Seed handle map from existing posts
             for post in existing.iter_posts():
                 self._register_post(post)
         else:
             self.web = ContextWeb(
                 root_uri=start_uri,
-                crawled_at=datetime.now(timezone.utc).isoformat(),
+                crawled_at=datetime.now(UTC).isoformat(),
             )
 
         self.queue = asyncio.Queue()
@@ -150,10 +151,7 @@ class Crawler:
         self._enqueue(start_uri, 0)
 
         # Launch worker pool
-        workers = [
-            asyncio.create_task(self._worker())
-            for _ in range(self.concurrency)
-        ]
+        workers = [asyncio.create_task(self._worker()) for _ in range(self.concurrency)]
         await self.queue.join()
         for w in workers:
             w.cancel()
@@ -183,7 +181,9 @@ class Crawler:
         if self.web.has_post(resolved):
             self.web.root_uri = resolved
         elif self.web.has_post(start_uri):
-            self.web.root_uri = self.web.get_post(start_uri).uri
+            start_post = self.web.get_post(start_uri)
+            if start_post:
+                self.web.root_uri = start_post.uri
 
         return self.web
 
@@ -249,9 +249,11 @@ class Crawler:
             if current_quote_count == 0:
                 continue
 
-            if post_uri in self.old_edge_counts:
-                if current_quote_count <= self.old_edge_counts[post_uri]:
-                    continue
+            if (
+                post_uri in self.old_edge_counts
+                and current_quote_count <= self.old_edge_counts[post_uri]
+            ):
+                continue
 
             await self._fetch_quotes(post_uri, depth)
 
@@ -354,8 +356,8 @@ class Crawler:
 
         # Add/update posts in thread
         for p_uri, post in posts.items():
-            if self.web.has_post(p_uri):
-                existing_post = self.web.get_post(p_uri)
+            existing_post = self.web.get_post(p_uri)
+            if existing_post:
                 existing_post.like_count = post.like_count
                 existing_post.reply_count = post.reply_count
                 existing_post.repost_count = post.repost_count
@@ -367,9 +369,7 @@ class Crawler:
         for post in posts.values():
             if post.embed_uri:
                 resolved = self._resolve_uri(post.embed_uri)
-                target_thread_root = (
-                    self.web.thread_root_for(resolved) or resolved
-                )
+                target_thread_root = self.web.thread_root_for(resolved) or resolved
                 self.web.quote_edges.append(
                     QuoteEdge(
                         source=resolved,
@@ -378,9 +378,10 @@ class Crawler:
                         target_thread=thread_root_uri,
                     )
                 )
-                if not self.web.thread_root_for(resolved):
-                    if self.max_depth is None or depth + 1 <= self.max_depth:
-                        self._enqueue(post.embed_uri, depth + 1)
+                if not self.web.thread_root_for(resolved) and (
+                    self.max_depth is None or depth + 1 <= self.max_depth
+                ):
+                    self._enqueue(post.embed_uri, depth + 1)
 
             # Detect quote-like references in link facets
             for facet in post.facets:
@@ -395,9 +396,7 @@ class Crawler:
                         continue  # already handled as embed quote
                     if resolved == post.uri:
                         continue  # self-reference
-                    target_thread = (
-                        self.web.thread_root_for(resolved) or resolved
-                    )
+                    target_thread = self.web.thread_root_for(resolved) or resolved
                     self.web.quote_edges.append(
                         QuoteEdge(
                             source=resolved,
@@ -406,12 +405,10 @@ class Crawler:
                             target_thread=thread_root_uri,
                         )
                     )
-                    if not self.web.thread_root_for(resolved):
-                        if (
-                            self.max_depth is None
-                            or depth + 1 <= self.max_depth
-                        ):
-                            self._enqueue(facet_uri, depth + 1)
+                    if not self.web.thread_root_for(resolved) and (
+                        self.max_depth is None or depth + 1 <= self.max_depth
+                    ):
+                        self._enqueue(facet_uri, depth + 1)
 
         return thread_root_uri
 
@@ -446,14 +443,10 @@ class Crawler:
                 post = _extract_post(post_view)
                 self._register_post(post)
                 if not self.web.has_post(post.uri):
-                    target_thread_root = (
-                        post.reply_root if post.reply_root else post.uri
-                    )
+                    target_thread_root = post.reply_root or post.uri
 
                     if target_thread_root not in self.web.threads:
-                        self.web.add_thread(
-                            Thread(root_uri=target_thread_root)
-                        )
+                        self.web.add_thread(Thread(root_uri=target_thread_root))
                     self.web.add_post(target_thread_root, post)
 
                     self.web.quote_edges.append(
@@ -465,14 +458,12 @@ class Crawler:
                         )
                     )
 
-                    if (
-                        self.max_depth is None
-                        or depth + 1 <= self.max_depth
-                    ):
+                    if self.max_depth is None or depth + 1 <= self.max_depth:
                         # Enqueue the thread root when known (from reply_root),
                         # otherwise the post URI itself
                         self._enqueue(
-                            post.reply_root or post.uri, depth + 1,
+                            post.reply_root or post.uri,
+                            depth + 1,
                         )
 
             cursor = getattr(resp, "cursor", None)
@@ -485,23 +476,18 @@ class Crawler:
 # ===================================================================
 
 
-async def _retry(coro_factory, *args, rate_event: asyncio.Event | None = None, **kwargs):
+async def _retry(
+    coro_factory, *args, rate_event: asyncio.Event | None = None, **kwargs
+):
     """Retry an async call with exponential backoff on rate limit or transient errors."""
     for attempt in range(MAX_RETRIES):
         try:
             return await coro_factory(*args, **kwargs)
         except RequestException as e:
-            status = getattr(
-                getattr(e, "response", None), "status_code", None
-            )
+            status = getattr(getattr(e, "response", None), "status_code", None)
             if status == 429:
-                headers = (
-                    getattr(getattr(e, "response", None), "headers", {})
-                    or {}
-                )
-                retry_after = headers.get("retry-after") or headers.get(
-                    "Retry-After"
-                )
+                headers = getattr(getattr(e, "response", None), "headers", {}) or {}
+                retry_after = headers.get("retry-after") or headers.get("Retry-After")
                 if retry_after and retry_after.isdigit():
                     delay = int(retry_after)
                 else:

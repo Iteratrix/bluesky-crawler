@@ -20,15 +20,25 @@ def _build_test_web() -> ContextWeb:
         root_uri="at://did:plc:a/app.bsky.feed.post/1",
         posts={
             "at://did:plc:a/app.bsky.feed.post/1": Post(
-                uri="at://did:plc:a/app.bsky.feed.post/1", cid="c1",
-                author=Author(did="did:plc:a", handle="alice.bsky.social", display_name="Alice"),
-                text="Original post", created_at="2026-01-15T10:00:00Z",
-                like_count=10, repost_count=3, quote_count=1,
+                uri="at://did:plc:a/app.bsky.feed.post/1",
+                cid="c1",
+                author=Author(
+                    did="did:plc:a", handle="alice.bsky.social", display_name="Alice"
+                ),
+                text="Original post",
+                created_at="2026-01-15T10:00:00Z",
+                like_count=10,
+                repost_count=3,
+                quote_count=1,
             ),
             "at://did:plc:b/app.bsky.feed.post/2": Post(
-                uri="at://did:plc:b/app.bsky.feed.post/2", cid="c2",
-                author=Author(did="did:plc:b", handle="bob.bsky.social", display_name="Bob"),
-                text="Direct reply", created_at="2026-01-15T10:05:00Z",
+                uri="at://did:plc:b/app.bsky.feed.post/2",
+                cid="c2",
+                author=Author(
+                    did="did:plc:b", handle="bob.bsky.social", display_name="Bob"
+                ),
+                text="Direct reply",
+                created_at="2026-01-15T10:05:00Z",
                 reply_parent="at://did:plc:a/app.bsky.feed.post/1",
                 reply_root="at://did:plc:a/app.bsky.feed.post/1",
                 like_count=2,
@@ -41,17 +51,23 @@ def _build_test_web() -> ContextWeb:
         root_uri="at://did:plc:c/app.bsky.feed.post/3",
         posts={
             "at://did:plc:c/app.bsky.feed.post/3": Post(
-                uri="at://did:plc:c/app.bsky.feed.post/3", cid="c3",
+                uri="at://did:plc:c/app.bsky.feed.post/3",
+                cid="c3",
                 author=Author(did="did:plc:c", handle="carol.bsky.social"),
-                text="Quote post", created_at="2026-01-15T10:08:00Z",
+                text="Quote post",
+                created_at="2026-01-15T10:08:00Z",
                 embed_uri="at://did:plc:a/app.bsky.feed.post/1",
                 embed_type="app.bsky.embed.record",
                 like_count=5,
             ),
             "at://did:plc:b/app.bsky.feed.post/4": Post(
-                uri="at://did:plc:b/app.bsky.feed.post/4", cid="c4",
-                author=Author(did="did:plc:b", handle="bob.bsky.social", display_name="Bob"),
-                text="Reply to quote", created_at="2026-01-15T10:12:00Z",
+                uri="at://did:plc:b/app.bsky.feed.post/4",
+                cid="c4",
+                author=Author(
+                    did="did:plc:b", handle="bob.bsky.social", display_name="Bob"
+                ),
+                text="Reply to quote",
+                created_at="2026-01-15T10:12:00Z",
                 reply_parent="at://did:plc:c/app.bsky.feed.post/3",
                 reply_root="at://did:plc:c/app.bsky.feed.post/3",
                 like_count=1,
@@ -141,6 +157,7 @@ class TestByAuthorLens:
 class TestRawLens:
     def test_valid_json(self):
         import json
+
         out = render(_build_test_web(), "raw")
         data = json.loads(out)
         assert "meta" in data
@@ -177,7 +194,7 @@ class TestStatsLens:
 class TestThreadsLens:
     def test_sorted_by_size(self):
         out = render(_build_test_web(), "threads")
-        lines = out.splitlines()
+        out.splitlines()
         # Both threads have 2 posts, so either order is fine
         assert "2 posts" in out
 
@@ -250,8 +267,10 @@ class TestNeighborhoodLens:
     def test_explicit_uri(self):
         # Neighborhood around Carol's quote post (thread 2), hops=0
         out = render(
-            _build_test_web(), "neighborhood",
-            uri="at://did:plc:c/app.bsky.feed.post/3", hops=0,
+            _build_test_web(),
+            "neighborhood",
+            uri="at://did:plc:c/app.bsky.feed.post/3",
+            hops=0,
         )
         assert "Quote post" in out
         assert "Reply to quote" in out
@@ -276,8 +295,10 @@ class TestTimelineLens:
 
     def test_window_filter(self):
         out = render(
-            _build_test_web(), "timeline",
-            after="2026-01-15T10:04:00Z", before="2026-01-15T10:09:00Z",
+            _build_test_web(),
+            "timeline",
+            after="2026-01-15T10:04:00Z",
+            before="2026-01-15T10:09:00Z",
         )
         # Bob's reply (10:05) and Carol's quote (10:08)
         assert "[1/2]" in out
@@ -331,5 +352,6 @@ class TestSearchLens:
 class TestInvalidLens:
     def test_unknown_lens(self):
         import pytest
+
         with pytest.raises(ValueError, match="Unknown lens"):
             render(_build_test_web(), "nonexistent")

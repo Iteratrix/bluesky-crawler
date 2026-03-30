@@ -48,9 +48,7 @@ async def get_client():
     handle = config.get("handle")
     app_password = config.get("app_password")
     if not handle or not app_password:
-        raise RuntimeError(
-            "No credentials configured. Run: bsky-context auth login"
-        )
+        raise RuntimeError("No credentials configured. Run: bsky-context auth login")
 
     await client.login(handle, app_password)
     # Persist session for next time

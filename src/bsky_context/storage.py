@@ -31,7 +31,9 @@ def save_web(web: ContextWeb) -> Path:
     data_dir.mkdir(parents=True, exist_ok=True)
     wid = web_id(web.root_uri)
     path = data_dir / f"{wid}.json"
-    path.write_text(json.dumps(converter.unstructure(web), indent=2, ensure_ascii=False))
+    path.write_text(
+        json.dumps(converter.unstructure(web), indent=2, ensure_ascii=False)
+    )
     return path
 
 
@@ -60,12 +62,14 @@ def list_webs() -> list[dict]:
     for path in sorted(data_dir.glob("*.json")):
         data = json.loads(path.read_text())
         meta = data.get("meta", {})
-        result.append({
-            "id": path.stem,
-            "root_uri": meta.get("root_uri", "?"),
-            "crawled_at": meta.get("crawled_at", "?"),
-            "nodes": meta.get("node_count", 0),
-            "edges": meta.get("edge_count", 0),
-            "threads": meta.get("thread_count", 0),
-        })
+        result.append(
+            {
+                "id": path.stem,
+                "root_uri": meta.get("root_uri", "?"),
+                "crawled_at": meta.get("crawled_at", "?"),
+                "nodes": meta.get("node_count", 0),
+                "edges": meta.get("edge_count", 0),
+                "threads": meta.get("thread_count", 0),
+            }
+        )
     return result

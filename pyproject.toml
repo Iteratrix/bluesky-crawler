@@ -25,11 +25,40 @@ Repository = "https://github.com/Iteratrix/bluesky-crawler"
 requires = ["uv_build>=0.9.28,<0.10.0"]
 build-backend = "uv_build"
 
+[tool.mypy]
+check_untyped_defs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+show_error_codes = true
+
+[[tool.mypy.overrides]]
+module = ["atproto", "atproto.*", "atproto_client.*"]
+ignore_missing_imports = true
+follow_untyped_imports = true
+
+[tool.ruff]
+target-version = "py312"
+line-length = 99
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+ignore = ["E741"]  # ambiguous variable names — l in list comps is fine
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "--strict-markers --strict-config --cov --cov-report=term-missing"
 
 [dependency-groups]
 dev = [
+    "mypy",
+    "ruff",
     "pytest>=9.0.2",
     "pytest-asyncio>=1.3.0",
+    "pytest-cov",
+    "hypothesis",
+    "pre-commit",
 ]

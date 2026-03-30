@@ -5,12 +5,7 @@ from __future__ import annotations
 import types
 
 import pytest
-
 from atproto_client.exceptions import NetworkError, RequestException
-
-from bsky_context.crawler import _retry, crawl
-from bsky_context.models import Author, ContextWeb, Post, QuoteEdge, Thread
-
 from conftest import (
     MockClient,
     at_uri,
@@ -21,6 +16,8 @@ from conftest import (
     make_thread_view,
 )
 
+from bsky_context.crawler import _retry, crawl
+from bsky_context.models import Author, ContextWeb, Post, QuoteEdge, Thread
 
 # ===================================================================
 # A. Graph Shape Tests
@@ -48,13 +45,15 @@ class TestGraphShapes:
         """A2: A→B→C linear chain in one thread."""
         a = make_post_view("alice", "1", quote_count=0)
         b = make_post_view(
-            "bob", "2",
+            "bob",
+            "2",
             reply_parent=at_uri("alice", "1"),
             reply_root=at_uri("alice", "1"),
             quote_count=0,
         )
         c = make_post_view(
-            "carol", "3",
+            "carol",
+            "3",
             reply_parent=at_uri("bob", "2"),
             reply_root=at_uri("alice", "1"),
             quote_count=0,
@@ -85,7 +84,8 @@ class TestGraphShapes:
         replies = []
         for i, name in enumerate(["bob", "carol", "dave", "eve", "frank"], start=2):
             rpv = make_post_view(
-                name, str(i),
+                name,
+                str(i),
                 reply_parent=at_uri("alice", "1"),
                 reply_root=at_uri("alice", "1"),
                 quote_count=0,
@@ -151,7 +151,8 @@ class TestGraphShapes:
         """A6: B replies to A AND quotes A — both in the same thread."""
         a = make_post_view("alice", "1", quote_count=1)
         b = make_post_view(
-            "bob", "2",
+            "bob",
+            "2",
             reply_parent=at_uri("alice", "1"),
             reply_root=at_uri("alice", "1"),
             embed_uri=at_uri("alice", "1"),
@@ -176,19 +177,22 @@ class TestGraphShapes:
         """A7: Start from B (mid-thread). API returns parent A + replies C,D."""
         a = make_post_view("alice", "1", quote_count=0)
         b = make_post_view(
-            "bob", "2",
+            "bob",
+            "2",
             reply_parent=at_uri("alice", "1"),
             reply_root=at_uri("alice", "1"),
             quote_count=0,
         )
         c = make_post_view(
-            "carol", "3",
+            "carol",
+            "3",
             reply_parent=at_uri("bob", "2"),
             reply_root=at_uri("alice", "1"),
             quote_count=0,
         )
         d = make_post_view(
-            "dave", "4",
+            "dave",
+            "4",
             reply_parent=at_uri("bob", "2"),
             reply_root=at_uri("alice", "1"),
             quote_count=0,
@@ -208,13 +212,14 @@ class TestGraphShapes:
         assert web.node_count == 4
         assert web.thread_count == 1
         # Thread root should be A (topmost ancestor)
-        thread = list(web.threads.values())[0]
+        thread = next(iter(web.threads.values()))
         assert thread.root_uri == at_uri("alice", "1")
 
     async def test_not_found_in_parent_chain(self):
         """A8: Parent is a NotFoundPost — child is collected, no crash."""
         c = make_post_view(
-            "carol", "3",
+            "carol",
+            "3",
             reply_parent=at_uri("missing", "2"),
             reply_root=at_uri("missing", "2"),
             quote_count=0,
@@ -236,7 +241,8 @@ class TestGraphShapes:
         """A9: One reply is blocked — it's skipped, others collected."""
         root = make_post_view("alice", "1", quote_count=0)
         good_reply = make_post_view(
-            "bob", "2",
+            "bob",
+            "2",
             reply_parent=at_uri("alice", "1"),
             reply_root=at_uri("alice", "1"),
             quote_count=0,
@@ -269,7 +275,8 @@ class TestCrawlerMechanics:
         # Thread T1: A (root) + B (reply)
         a = make_post_view("alice", "1", quote_count=1)
         b = make_post_view(
-            "bob", "2",
+            "bob",
+            "2",
             reply_parent=at_uri("alice", "1"),
             reply_root=at_uri("alice", "1"),
             quote_count=1,
@@ -346,7 +353,7 @@ class TestCrawlerMechanics:
         posts = []
         for i in range(10):
             name = f"user{i}"
-            embed = at_uri(f"user{i-1}", str(i - 1)) if i > 0 else None
+            embed = at_uri(f"user{i - 1}", str(i - 1)) if i > 0 else None
             qc = 1 if i < 9 else 0
             pv = make_post_view(name, str(i), embed_uri=embed, quote_count=qc)
             posts.append(pv)
@@ -368,26 +375,30 @@ class TestCrawlerMechanics:
             root_uri=at_uri("alice", "1"),
             crawled_at="2026-01-01T00:00:00Z",
         )
-        existing.add_thread(Thread(
-            root_uri=at_uri("alice", "1"),
-            posts={
-                at_uri("alice", "1"): Post(
-                    uri=at_uri("alice", "1"),
-                    cid="cid-alice-1",
-                    author=Author(did="did:plc:alice", handle="alice.bsky.social"),
-                    text="hi",
-                    created_at="2026-01-01T00:00:00Z",
-                    quote_count=1,
-                )
-            },
-        ))
+        existing.add_thread(
+            Thread(
+                root_uri=at_uri("alice", "1"),
+                posts={
+                    at_uri("alice", "1"): Post(
+                        uri=at_uri("alice", "1"),
+                        cid="cid-alice-1",
+                        author=Author(did="did:plc:alice", handle="alice.bsky.social"),
+                        text="hi",
+                        created_at="2026-01-01T00:00:00Z",
+                        quote_count=1,
+                    )
+                },
+            )
+        )
         # Existing edge proves we already checked quotes for alice/1
-        existing.quote_edges.append(QuoteEdge(
-            source=at_uri("alice", "1"),
-            target=at_uri("prev", "99"),
-            source_thread=at_uri("alice", "1"),
-            target_thread=at_uri("prev", "99"),
-        ))
+        existing.quote_edges.append(
+            QuoteEdge(
+                source=at_uri("alice", "1"),
+                target=at_uri("prev", "99"),
+                source_thread=at_uri("alice", "1"),
+                target_thread=at_uri("prev", "99"),
+            )
+        )
 
         # API returns same quote_count=1
         a = make_post_view("alice", "1", quote_count=1)
@@ -396,7 +407,7 @@ class TestCrawlerMechanics:
         # Register quotes that should NOT be fetched
         client.add_quotes(at_uri("alice", "1"), [make_post_view("bob", "2")])
 
-        web = await crawl(client, at_uri("alice", "1"), existing=existing)
+        await crawl(client, at_uri("alice", "1"), existing=existing)
 
         assert client.call_uris("get_quotes") == []
 
@@ -406,27 +417,31 @@ class TestCrawlerMechanics:
             root_uri=at_uri("alice", "1"),
             crawled_at="2026-01-01T00:00:00Z",
         )
-        existing.add_thread(Thread(
-            root_uri=at_uri("alice", "1"),
-            posts={
-                at_uri("alice", "1"): Post(
-                    uri=at_uri("alice", "1"),
-                    cid="cid-alice-1",
-                    author=Author(did="did:plc:alice", handle="alice.bsky.social"),
-                    text="hi",
-                    created_at="2026-01-01T00:00:00Z",
-                    quote_count=2,  # old count
-                )
-            },
-        ))
+        existing.add_thread(
+            Thread(
+                root_uri=at_uri("alice", "1"),
+                posts={
+                    at_uri("alice", "1"): Post(
+                        uri=at_uri("alice", "1"),
+                        cid="cid-alice-1",
+                        author=Author(did="did:plc:alice", handle="alice.bsky.social"),
+                        text="hi",
+                        created_at="2026-01-01T00:00:00Z",
+                        quote_count=2,  # old count
+                    )
+                },
+            )
+        )
         # 2 existing edges from previous crawl
         for i in range(2):
-            existing.quote_edges.append(QuoteEdge(
-                source=at_uri("alice", "1"),
-                target=at_uri("prev", str(i)),
-                source_thread=at_uri("alice", "1"),
-                target_thread=at_uri("prev", str(i)),
-            ))
+            existing.quote_edges.append(
+                QuoteEdge(
+                    source=at_uri("alice", "1"),
+                    target=at_uri("prev", str(i)),
+                    source_thread=at_uri("alice", "1"),
+                    target_thread=at_uri("prev", str(i)),
+                )
+            )
 
         # API returns higher quote_count=5
         a = make_post_view("alice", "1", quote_count=5)
@@ -451,19 +466,21 @@ class TestCrawlerMechanics:
             root_uri=at_uri("alice", "1"),
             crawled_at="2026-01-01T00:00:00Z",
         )
-        existing.add_thread(Thread(
-            root_uri=at_uri("alice", "1"),
-            posts={
-                at_uri("alice", "1"): Post(
-                    uri=at_uri("alice", "1"),
-                    cid="cid-alice-1",
-                    author=Author(did="did:plc:alice", handle="alice.bsky.social"),
-                    text="hi",
-                    created_at="2026-01-01T00:00:00Z",
-                    quote_count=3,  # discovered but never explored
-                )
-            },
-        ))
+        existing.add_thread(
+            Thread(
+                root_uri=at_uri("alice", "1"),
+                posts={
+                    at_uri("alice", "1"): Post(
+                        uri=at_uri("alice", "1"),
+                        cid="cid-alice-1",
+                        author=Author(did="did:plc:alice", handle="alice.bsky.social"),
+                        text="hi",
+                        created_at="2026-01-01T00:00:00Z",
+                        quote_count=3,  # discovered but never explored
+                    )
+                },
+            )
+        )
         # No quote_edges — simulates a timeout before getQuotes was called
 
         # API returns same quote_count=3
@@ -489,42 +506,47 @@ class TestCrawlerMechanics:
             root_uri=at_uri("alice", "1"),
             crawled_at="2026-01-01T00:00:00Z",
         )
-        existing.add_thread(Thread(
-            root_uri=at_uri("alice", "1"),
-            posts={
-                at_uri("alice", "1"): Post(
-                    uri=at_uri("alice", "1"),
-                    cid="cid-alice-1",
-                    author=Author(did="did:plc:alice", handle="alice.bsky.social"),
-                    text="root",
-                    created_at="2026-01-01T00:00:00Z",
-                    quote_count=1,  # explored — has edge below
-                ),
-                at_uri("alice", "5"): Post(
-                    uri=at_uri("alice", "5"),
-                    cid="cid-alice-5",
-                    author=Author(did="did:plc:alice", handle="alice.bsky.social"),
-                    text="reply",
-                    created_at="2026-01-01T00:01:00Z",
-                    reply_parent=at_uri("alice", "1"),
-                    reply_root=at_uri("alice", "1"),
-                    quote_count=2,  # NOT explored — timed out
-                ),
-            },
-        ))
+        existing.add_thread(
+            Thread(
+                root_uri=at_uri("alice", "1"),
+                posts={
+                    at_uri("alice", "1"): Post(
+                        uri=at_uri("alice", "1"),
+                        cid="cid-alice-1",
+                        author=Author(did="did:plc:alice", handle="alice.bsky.social"),
+                        text="root",
+                        created_at="2026-01-01T00:00:00Z",
+                        quote_count=1,  # explored — has edge below
+                    ),
+                    at_uri("alice", "5"): Post(
+                        uri=at_uri("alice", "5"),
+                        cid="cid-alice-5",
+                        author=Author(did="did:plc:alice", handle="alice.bsky.social"),
+                        text="reply",
+                        created_at="2026-01-01T00:01:00Z",
+                        reply_parent=at_uri("alice", "1"),
+                        reply_root=at_uri("alice", "1"),
+                        quote_count=2,  # NOT explored — timed out
+                    ),
+                },
+            )
+        )
         # Edge for alice/1 — proves it was explored
-        existing.quote_edges.append(QuoteEdge(
-            source=at_uri("alice", "1"),
-            target=at_uri("prev", "99"),
-            source_thread=at_uri("alice", "1"),
-            target_thread=at_uri("prev", "99"),
-        ))
+        existing.quote_edges.append(
+            QuoteEdge(
+                source=at_uri("alice", "1"),
+                target=at_uri("prev", "99"),
+                source_thread=at_uri("alice", "1"),
+                target_thread=at_uri("prev", "99"),
+            )
+        )
         # No edges for alice/5 — never explored
 
         # API returns same quote counts
         a = make_post_view("alice", "1", quote_count=1)
         a5 = make_post_view(
-            "alice", "5",
+            "alice",
+            "5",
             reply_parent=at_uri("alice", "1"),
             reply_root=at_uri("alice", "1"),
             quote_count=2,
@@ -557,26 +579,30 @@ class TestCrawlerMechanics:
             root_uri=at_uri("alice", "1"),
             crawled_at="2026-01-01T00:00:00Z",
         )
-        existing.add_thread(Thread(
-            root_uri=at_uri("alice", "1"),
-            posts={
-                at_uri("alice", "1"): Post(
-                    uri=at_uri("alice", "1"),
-                    cid="cid-alice-1",
-                    author=Author(did="did:plc:alice", handle="alice.bsky.social"),
-                    text="hi",
-                    created_at="2026-01-01T00:00:00Z",
-                    quote_count=1,  # was 1 when we last checked
-                )
-            },
-        ))
+        existing.add_thread(
+            Thread(
+                root_uri=at_uri("alice", "1"),
+                posts={
+                    at_uri("alice", "1"): Post(
+                        uri=at_uri("alice", "1"),
+                        cid="cid-alice-1",
+                        author=Author(did="did:plc:alice", handle="alice.bsky.social"),
+                        text="hi",
+                        created_at="2026-01-01T00:00:00Z",
+                        quote_count=1,  # was 1 when we last checked
+                    )
+                },
+            )
+        )
         # 1 edge from previous crawl
-        existing.quote_edges.append(QuoteEdge(
-            source=at_uri("alice", "1"),
-            target=at_uri("prev", "99"),
-            source_thread=at_uri("alice", "1"),
-            target_thread=at_uri("prev", "99"),
-        ))
+        existing.quote_edges.append(
+            QuoteEdge(
+                source=at_uri("alice", "1"),
+                target=at_uri("prev", "99"),
+                source_thread=at_uri("alice", "1"),
+                target_thread=at_uri("prev", "99"),
+            )
+        )
 
         # API now returns quote_count=3 (grew from 1 to 3)
         a = make_post_view("alice", "1", quote_count=3)
@@ -595,7 +621,8 @@ class TestCrawlerMechanics:
         """B6: Posts with quote_count=0 never trigger getQuotes."""
         a = make_post_view("alice", "1", quote_count=0)
         b = make_post_view(
-            "bob", "2",
+            "bob",
+            "2",
             reply_parent=at_uri("alice", "1"),
             reply_root=at_uri("alice", "1"),
             quote_count=0,
@@ -617,7 +644,8 @@ class TestCrawlerMechanics:
         # C's reply_root is B, so a placeholder thread rooted at B is created.
         b = make_post_view("bob", "2", quote_count=0)
         c = make_post_view(
-            "carol", "3",
+            "carol",
+            "3",
             reply_parent=at_uri("bob", "2"),
             reply_root=at_uri("bob", "2"),
             embed_uri=at_uri("alice", "1"),
@@ -652,23 +680,32 @@ class TestCrawlerMechanics:
             root_uri=at_uri("alice", "1"),
             crawled_at="2026-01-01T00:00:00Z",
         )
-        existing.add_thread(Thread(
-            root_uri=at_uri("alice", "1"),
-            posts={
-                at_uri("alice", "1"): Post(
-                    uri=at_uri("alice", "1"),
-                    cid="cid-alice-1",
-                    author=Author(did="did:plc:alice", handle="alice.bsky.social"),
-                    text="Original text",
-                    created_at="2026-01-01T00:00:00Z",
-                    like_count=10,
-                    quote_count=0,
-                )
-            },
-        ))
+        existing.add_thread(
+            Thread(
+                root_uri=at_uri("alice", "1"),
+                posts={
+                    at_uri("alice", "1"): Post(
+                        uri=at_uri("alice", "1"),
+                        cid="cid-alice-1",
+                        author=Author(did="did:plc:alice", handle="alice.bsky.social"),
+                        text="Original text",
+                        created_at="2026-01-01T00:00:00Z",
+                        like_count=10,
+                        quote_count=0,
+                    )
+                },
+            )
+        )
 
         # API returns higher counts
-        a = make_post_view("alice", "1", "Different text from API", like_count=50, reply_count=8, quote_count=0)
+        a = make_post_view(
+            "alice",
+            "1",
+            "Different text from API",
+            like_count=50,
+            reply_count=8,
+            quote_count=0,
+        )
         client = MockClient()
         client.add_thread(at_uri("alice", "1"), make_thread_view(a))
 
@@ -697,7 +734,9 @@ class TestCrawlerMechanics:
         """B10: getQuotes paginates correctly across multiple pages."""
         a = make_post_view("alice", "1", quote_count=3)
         quoters = [
-            make_post_view(f"q{i}", str(i + 10), embed_uri=at_uri("alice", "1"), quote_count=0)
+            make_post_view(
+                f"q{i}", str(i + 10), embed_uri=at_uri("alice", "1"), quote_count=0
+            )
             for i in range(3)
         ]
 
@@ -815,6 +854,7 @@ class TestErrorHandling:
 
     async def test_retry_exhaustion_raises(self):
         """C4: Permanent non-transient error raises after first attempt."""
+
         async def always_fails(**_kwargs):
             raise ValueError("permanent error")
 
@@ -927,7 +967,9 @@ class TestEdgeCases:
         """D1: A single post quoted 10 times → 11 threads, 10 quote edges."""
         a = make_post_view("alice", "1", quote_count=10)
         quoters = [
-            make_post_view(f"q{i}", str(i + 10), embed_uri=at_uri("alice", "1"), quote_count=0)
+            make_post_view(
+                f"q{i}", str(i + 10), embed_uri=at_uri("alice", "1"), quote_count=0
+            )
             for i in range(10)
         ]
 
@@ -960,14 +1002,17 @@ class TestEdgeCases:
         assert web.thread_count == 3
         assert len(web.quote_edges) == 2
         # A's thread fetched exactly once
-        a_calls = [u for u in client.call_uris("get_post_thread") if u == at_uri("alice", "1")]
+        a_calls = [
+            u for u in client.call_uris("get_post_thread") if u == at_uri("alice", "1")
+        ]
         assert len(a_calls) == 1
 
     async def test_record_with_media_embed(self):
         """D3: embed_type 'recordWithMedia' is still detected as a quote."""
         a = make_post_view("alice", "1", quote_count=0)
         b = make_post_view(
-            "bob", "2",
+            "bob",
+            "2",
             embed_uri=at_uri("alice", "1"),
             embed_type="app.bsky.embed.recordWithMedia",
             quote_count=0,
@@ -993,34 +1038,37 @@ class TestEdgeCases:
             crawled_at="2026-01-01T00:00:00Z",
         )
         # Existing: thread T1 with A and B
-        existing.add_thread(Thread(
-            root_uri=at_uri("alice", "1"),
-            posts={
-                at_uri("alice", "1"): Post(
-                    uri=at_uri("alice", "1"),
-                    cid="cid-alice-1",
-                    author=Author(did="did:plc:alice", handle="alice.bsky.social"),
-                    text="Root post",
-                    created_at="2026-01-01T00:00:00Z",
-                    quote_count=0,  # was 0, now 1
-                ),
-                at_uri("bob", "2"): Post(
-                    uri=at_uri("bob", "2"),
-                    cid="cid-bob-2",
-                    author=Author(did="did:plc:bob", handle="bob.bsky.social"),
-                    text="Reply",
-                    created_at="2026-01-01T00:01:00Z",
-                    reply_parent=at_uri("alice", "1"),
-                    reply_root=at_uri("alice", "1"),
-                    quote_count=0,
-                ),
-            },
-        ))
+        existing.add_thread(
+            Thread(
+                root_uri=at_uri("alice", "1"),
+                posts={
+                    at_uri("alice", "1"): Post(
+                        uri=at_uri("alice", "1"),
+                        cid="cid-alice-1",
+                        author=Author(did="did:plc:alice", handle="alice.bsky.social"),
+                        text="Root post",
+                        created_at="2026-01-01T00:00:00Z",
+                        quote_count=0,  # was 0, now 1
+                    ),
+                    at_uri("bob", "2"): Post(
+                        uri=at_uri("bob", "2"),
+                        cid="cid-bob-2",
+                        author=Author(did="did:plc:bob", handle="bob.bsky.social"),
+                        text="Reply",
+                        created_at="2026-01-01T00:01:00Z",
+                        reply_parent=at_uri("alice", "1"),
+                        reply_root=at_uri("alice", "1"),
+                        quote_count=0,
+                    ),
+                },
+            )
+        )
 
         # API now returns A with quote_count=1 (new quote!)
         a = make_post_view("alice", "1", quote_count=1)
         b = make_post_view(
-            "bob", "2",
+            "bob",
+            "2",
             reply_parent=at_uri("alice", "1"),
             reply_root=at_uri("alice", "1"),
             quote_count=0,
@@ -1059,8 +1107,11 @@ class TestFacetEdges:
         # Use handle-based URI as the facet link (this is what real posts contain)
         handle_uri = "at://carol.bsky.social/app.bsky.feed.post/5"
         a = make_post_view(
-            "alice", "1",
-            facets=[make_link_facet("https://bsky.app/profile/carol.bsky.social/post/5")],
+            "alice",
+            "1",
+            facets=[
+                make_link_facet("https://bsky.app/profile/carol.bsky.social/post/5")
+            ],
             quote_count=0,
         )
         target = make_post_view("carol", "5", quote_count=0)
@@ -1081,7 +1132,8 @@ class TestFacetEdges:
         """E2: A link facet with an AT URI (not bsky.app URL) also works."""
         target_uri = at_uri("carol", "5")
         a = make_post_view(
-            "alice", "1",
+            "alice",
+            "1",
             facets=[make_link_facet(target_uri)],
             quote_count=0,
         )
@@ -1099,7 +1151,8 @@ class TestFacetEdges:
     async def test_link_facet_skips_non_post_urls(self):
         """E3: Link facets pointing to non-post URLs are ignored."""
         a = make_post_view(
-            "alice", "1",
+            "alice",
+            "1",
             facets=[make_link_facet("https://example.com/some-page")],
             quote_count=0,
         )
@@ -1116,7 +1169,8 @@ class TestFacetEdges:
         """E4: Link facet pointing to same post as embed_uri doesn't create duplicate edge."""
         target_uri = at_uri("carol", "5")
         a = make_post_view(
-            "alice", "1",
+            "alice",
+            "1",
             embed_uri=target_uri,
             facets=[make_link_facet(target_uri)],
             quote_count=0,
@@ -1150,7 +1204,9 @@ class TestUnknownFacets:
                 types.SimpleNamespace(
                     index=types.SimpleNamespace(byte_start=0, byte_end=5),
                     features=[
-                        types.SimpleNamespace(py_type="app.bsky.richtext.facet#futureType"),
+                        types.SimpleNamespace(
+                            py_type="app.bsky.richtext.facet#futureType"
+                        ),
                     ],
                 ),
             ],
@@ -1161,5 +1217,3 @@ class TestUnknownFacets:
         assert len(result) == 1
         assert len(result[0]["features"]) == 1
         assert result[0]["features"][0]["type"] == "app.bsky.richtext.facet#futureType"
-
-

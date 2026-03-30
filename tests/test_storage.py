@@ -15,18 +15,24 @@ def tmp_data_dir(tmp_path):
     del os.environ["XDG_DATA_HOME"]
 
 
-def _make_web(root_uri: str = "at://did:plc:test/app.bsky.feed.post/abc123") -> ContextWeb:
+def _make_web(
+    root_uri: str = "at://did:plc:test/app.bsky.feed.post/abc123",
+) -> ContextWeb:
     web = ContextWeb(root_uri=root_uri, crawled_at="2026-01-01T00:00:00Z")
-    web.add_thread(Thread(
-        root_uri=root_uri,
-        posts={
-            root_uri: Post(
-                uri=root_uri, cid="cid1",
-                author=Author(did="did:plc:test", handle="test.bsky.social"),
-                text="Test post", created_at="2026-01-01T00:00:00Z",
-            ),
-        },
-    ))
+    web.add_thread(
+        Thread(
+            root_uri=root_uri,
+            posts={
+                root_uri: Post(
+                    uri=root_uri,
+                    cid="cid1",
+                    author=Author(did="did:plc:test", handle="test.bsky.social"),
+                    text="Test post",
+                    created_at="2026-01-01T00:00:00Z",
+                ),
+            },
+        )
+    )
     return web
 
 
@@ -40,7 +46,9 @@ class TestWebId:
         assert wid.startswith("abc123-")
 
     def test_different_uris_differ(self):
-        assert web_id("at://a/app.bsky.feed.post/x") != web_id("at://b/app.bsky.feed.post/x")
+        assert web_id("at://a/app.bsky.feed.post/x") != web_id(
+            "at://b/app.bsky.feed.post/x"
+        )
 
 
 class TestSaveLoad:

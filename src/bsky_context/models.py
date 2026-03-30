@@ -40,7 +40,6 @@ class Post:
     quote_count: int = 0
 
 
-
 @dataclass
 class Thread:
     """A reply tree rooted at one post — the atomic crawl unit."""
@@ -57,7 +56,6 @@ class Thread:
         return self.posts.get(self.root_uri)
 
 
-
 @dataclass
 class QuoteEdge:
     """A quote relationship between posts, possibly across threads."""
@@ -66,7 +64,6 @@ class QuoteEdge:
     target: str  # URI of the quoting post
     source_thread: str  # thread root URI containing the source
     target_thread: str  # thread root URI containing the target
-
 
 
 @dataclass
@@ -78,7 +75,9 @@ class ContextWeb:
     threads: dict[str, Thread] = field(default_factory=dict)  # root URI -> Thread
     quote_edges: list[QuoteEdge] = field(default_factory=list)
     _post_index: dict[str, str] = field(
-        default_factory=dict, init=False, repr=False,
+        default_factory=dict,
+        init=False,
+        repr=False,
     )  # post URI -> thread root URI, O(1) lookup
 
     # -- Mutation methods (keep _post_index in sync) --
@@ -179,7 +178,6 @@ class ContextWeb:
         self.quote_edges = unique
 
 
-
 # ---------------------------------------------------------------------------
 # cattrs hooks for ContextWeb (meta envelope + index rebuild)
 # ---------------------------------------------------------------------------
@@ -196,12 +194,8 @@ def _unstructure_web(web: ContextWeb) -> dict[str, Any]:
             "edge_count": web.edge_count,
             "thread_count": web.thread_count,
         },
-        "threads": {
-            uri: converter.unstructure(t) for uri, t in web.threads.items()
-        },
-        "quote_edges": [
-            converter.unstructure(qe) for qe in web.quote_edges
-        ],
+        "threads": {uri: converter.unstructure(t) for uri, t in web.threads.items()},
+        "quote_edges": [converter.unstructure(qe) for qe in web.quote_edges],
     }
 
 

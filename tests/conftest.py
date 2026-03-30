@@ -7,10 +7,10 @@ from typing import Any
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # URI helper
 # ---------------------------------------------------------------------------
+
 
 def at_uri(author: str, rkey: str) -> str:
     """Build an AT URI from short names.
@@ -23,6 +23,7 @@ def at_uri(author: str, rkey: str) -> str:
 # ---------------------------------------------------------------------------
 # PostView mock builder
 # ---------------------------------------------------------------------------
+
 
 def make_post_view(
     author: str,
@@ -89,17 +90,23 @@ def make_post_view(
 # Facet mock builders
 # ---------------------------------------------------------------------------
 
-def make_link_facet(uri: str, byte_start: int = 0, byte_end: int = 10) -> types.SimpleNamespace:
+
+def make_link_facet(
+    uri: str, byte_start: int = 0, byte_end: int = 10
+) -> types.SimpleNamespace:
     """Build a facet with a link feature."""
     return types.SimpleNamespace(
         index=types.SimpleNamespace(byte_start=byte_start, byte_end=byte_end),
-        features=[types.SimpleNamespace(py_type="app.bsky.richtext.facet#link", uri=uri)],
+        features=[
+            types.SimpleNamespace(py_type="app.bsky.richtext.facet#link", uri=uri)
+        ],
     )
 
 
 # ---------------------------------------------------------------------------
 # ThreadViewPost mock builder
 # ---------------------------------------------------------------------------
+
 
 def make_thread_view(
     post_view: types.SimpleNamespace,
@@ -119,6 +126,7 @@ def make_thread_view(
 # Error node builders (no .post attribute)
 # ---------------------------------------------------------------------------
 
+
 def make_not_found(uri: str) -> types.SimpleNamespace:
     """NotFoundPost — _walk_thread_node skips these (no .post attr)."""
     return types.SimpleNamespace(not_found=True, uri=uri)
@@ -136,6 +144,7 @@ def make_blocked(uri: str) -> types.SimpleNamespace:
 # ---------------------------------------------------------------------------
 # MockClient
 # ---------------------------------------------------------------------------
+
 
 class MockClient:
     """Fake AsyncClient that returns pre-configured thread/quote responses.
@@ -185,7 +194,7 @@ class MockClient:
         pages: list[list[types.SimpleNamespace]] = []
         for i in range(0, len(posts), page_size):
             pages.append(posts[i : i + page_size])
-        self._quote_pages[uri] = pages if pages else [[]]
+        self._quote_pages[uri] = pages or [[]]
 
     def set_quote_error(self, uri: str, error: Exception) -> None:
         """Make getQuotes raise for a specific URI."""
@@ -203,7 +212,9 @@ class MockClient:
 
     # -- async API methods --
 
-    async def _get_post_thread(self, *, params: dict[str, Any]) -> types.SimpleNamespace:
+    async def _get_post_thread(
+        self, *, params: dict[str, Any]
+    ) -> types.SimpleNamespace:
         self._call_log.append(("get_post_thread", params))
         uri = params["uri"]
         if uri not in self._threads:
@@ -233,9 +244,11 @@ class MockClient:
 # Autouse fixture: eliminate asyncio.sleep delays in _retry
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(autouse=True)
 def _patch_crawler_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
     """Replace asyncio.sleep in the crawler module with a no-op."""
+
     async def _instant(*_args: Any, **_kwargs: Any) -> None:
         pass
 
