@@ -4,6 +4,22 @@ Crawl the full conversation graph of a Bluesky post — not just the linear thre
 
 Built for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) but works as a standalone CLI too.
 
+## Quick start
+
+```bash
+# Install
+uv tool install git+https://github.com/Iteratrix/bluesky-crawler.git
+
+# Log in (needs a Bluesky app password)
+bsky-context auth login
+
+# Fetch a conversation and see it
+bsky-context fetch "https://bsky.app/profile/alice.bsky.social/post/abc123"
+bsky-context show <web-id>
+```
+
+**As a Claude Code skill:** copy the skill to `~/.claude/skills/bsky-context` and Claude can fetch and analyze any bsky.app link you share mid-conversation. See [Claude Code skill](#claude-code-skill) below.
+
 ## What it does
 
 Bluesky conversations aren't threads — they're **Context Webs**. A post gets replies (tree structure), but also gets *quoted*, and those quote posts get their own replies, and *those* get quoted... `bsky-context` crawls this entire graph and stores it locally, then renders it through different **lenses** optimized for different tasks:
