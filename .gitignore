@@ -11,3 +11,8 @@ wheels/
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# Rust
+target/
+web/pkg/
+web/out/
