@@ -4,7 +4,7 @@ compatibility_date = "2026-08-01"
 workers_dev = true
 
 [build]
-command = "cargo install -q worker-build && worker-build --release"
+command = "worker-build --release"
 
 # Per-request crawl budget. A language model's URL fetcher times out in
 # tens of seconds, so keep the timeout well under that; repeated fetches of

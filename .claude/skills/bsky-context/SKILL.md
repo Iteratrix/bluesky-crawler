@@ -20,16 +20,9 @@ First, determine whether `bsky-context` is on PATH:
 command -v bsky-context >/dev/null && echo "global" || echo "local"
 ```
 - If **global**: use `bsky-context <command>`
-- If **local** (running inside the project repo): use `uv run bsky-context <command>`
+- If **local** (running inside the project repo): use `cargo run -q -p bsky-context-cli -- <command>`
 
-Use the appropriate prefix for all commands below.
-
-## Setup
-
-If not yet configured, run:
-```bash
-bsky-context auth login --handle <HANDLE> --app-password <APP_PASSWORD>
-```
+Use the appropriate prefix for all commands below. No login or credentials are needed.
 
 ## Fetching a conversation
 
@@ -94,6 +87,16 @@ bsky-context show <id> -l highlights -n 5
 ```bash
 bsky-context list
 ```
+
+## Without a shell
+
+If you cannot run commands but can fetch URLs, the same tool is deployed as a web
+service: fetch `https://<worker-host>/t/<handle>/<rkey>` (from
+`https://bsky.app/profile/<handle>/post/<rkey>`) and you get the web as markdown.
+Add `?lens=<name>` and the parameters above as query strings (`q` for the search
+query, `top`, `hops`, `uri`, `after`, `before`, `author`). Crawls are bounded per
+request; if the response says the budget was reached, fetch the same URL again to
+continue from the cached web.
 
 ## Typical workflow
 

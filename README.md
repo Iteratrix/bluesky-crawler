@@ -1,28 +1,36 @@
-# Bluesky Crawler
+# bsky-context
 
-Crawl the full conversation graph of a Bluesky post — not just the linear thread, but the complete DAG of replies **and** quote posts, recursively.
+Crawl the full conversation graph of a Bluesky post — not just the linear thread, but the complete DAG of replies **and** quote posts, recursively — and render it as text a person or a language model can reason over.
 
-Built for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) but works as a standalone CLI too.
+Three ways to use it, all running the same Rust core:
+
+| | For | Where it runs |
+|---|---|---|
+| **CLI** `bsky-context` | You at a terminal, or Claude Code via the bundled skill | Natively, stores webs locally |
+| **Web app** | Anyone in a browser | Entirely client-side (WASM) on GitHub Pages; nothing leaves your machine |
+| **Worker** `/t/<handle>/<rkey>` | A language model that can fetch URLs (Claude on your phone, say) | A Cloudflare Worker that crawls on demand and returns markdown |
+
+No login needed: Bluesky's public AppView serves everything the crawler uses unauthenticated.
 
 ## Quick start
 
 ```bash
-# Install
-uv tool install git+https://github.com/Iteratrix/bluesky-crawler.git
+# Install the CLI
+cargo install --git https://github.com/Iteratrix/bluesky-crawler bsky-context-cli
 
-# Log in (needs a Bluesky app password)
-bsky-context auth login
-
-# Fetch a conversation and see it
+# Crawl a conversation and look at it
 bsky-context fetch "https://bsky.app/profile/alice.bsky.social/post/abc123"
-bsky-context show <web-id>
+bsky-context show <web-id>            # threaded view
+bsky-context show <web-id> -l stats   # overview first for big webs
 ```
 
-**As a Claude Code skill:** copy the skill to `~/.claude/skills/bsky-context` and Claude can fetch and analyze any bsky.app link you share mid-conversation. See [Claude Code skill](#claude-code-skill) below.
+**As a Claude Code skill:** copy `.claude/skills/bsky-context` to `~/.claude/skills/` and Claude can fetch and analyze any bsky.app link you share mid-conversation.
+
+**From a chat model that can fetch URLs:** deploy the worker (below) and hand the model `https://<your-worker>/t/alice.bsky.social/abc123`. It gets the whole web as markdown; `?lens=linear` and friends select the rendering.
 
 ## What it does
 
-Bluesky conversations aren't threads — they're **Context Webs**. A post gets replies (tree structure), but also gets *quoted*, and those quote posts get their own replies, and *those* get quoted... `bsky-context` crawls this entire graph and stores it locally, then renders it through different **lenses** optimized for different tasks:
+Bluesky conversations aren't threads — they're **Context Webs**. A post gets replies (tree structure), but also gets *quoted*, and those quote posts get their own replies, and *those* get quoted... `bsky-context` crawls this entire graph, stores it, and renders it through **lenses** optimized for different tasks:
 
 | Lens | Best for | Output |
 |------|----------|--------|
@@ -37,97 +45,77 @@ Bluesky conversations aren't threads — they're **Context Webs**. A post gets r
 | `search` | Finding specific content or authors | Filtered results with thread context |
 | `raw` | Programmatic use | Full JSON graph |
 
-## Install
-
-Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
+## CLI
 
 ```bash
-# Clone and install
-git clone https://github.com/Iteratrix/bluesky-crawler.git
-cd bsky-context
-uv sync
-
-# Or install globally as a CLI tool
-uv tool install git+https://github.com/Iteratrix/bluesky-crawler.git
-```
-
-## Setup
-
-Create a [Bluesky app password](https://bsky.app/settings/app-passwords), then:
-
-```bash
-bsky-context auth login
-# Enter your handle and app password when prompted
-```
-
-Credentials are stored in `~/.config/bsky-context/config.json` (permissions restricted to your user).
-
-## Usage
-
-```bash
-# Crawl a conversation
-bsky-context fetch "https://bsky.app/profile/alice.bsky.social/post/abc123"
-
-# View it
-bsky-context show <web-id>                  # threaded view (default)
-bsky-context show <web-id> -l linear        # chronological narrative
-bsky-context show <web-id> -l by-author     # grouped by participant
-bsky-context show <web-id> -l stats         # summary statistics
-bsky-context show <web-id> -l threads       # thread listing by size
-bsky-context show <web-id> -l highlights    # notable posts and authors
-bsky-context show <web-id> -l raw           # JSON graph
-
-# Focus on nearby context (N quote-hops)
-bsky-context show <web-id> -l neighborhood --hops 1
-
-# Filter by time window
-bsky-context show <web-id> -l timeline --after "2026-03-01T00:00:00"
-
-# Search for content or authors
-bsky-context show <web-id> -l search -q "some topic"
-bsky-context show <web-id> -l search --author "alice"
-
-# List cached conversations
+bsky-context fetch <url-or-at-uri> [--max-nodes 2000] [--max-depth N] [--timeout 300] [-c 2] [--fresh] [-v]
+bsky-context show <web-id> [-l LENS] [--hops N] [--uri U] [--after T] [--before T] [-q Q] [--author A] [-n TOP]
 bsky-context list
 ```
 
-### Crawl controls
+`fetch` prints a web ID; `show` accepts that ID or any unique prefix. Re-running `fetch` on a known post loads the stored web and merges in what's new: posts whose quote count hasn't changed are skipped for quote-fetching, so updates are fast. `--fresh` discards the stored version (use it if a quote may have been deleted and recreated, which keeps the count the same). `-c` sets concurrent API requests; higher is faster but risks rate limits.
+
+Webs are stored as JSON in `~/.local/share/bsky-context/webs/` (honors `XDG_DATA_HOME`). The format is stable, human-readable, and shared with the original Python implementation, so existing webs load as-is.
+
+## Web app
+
+Open the deployed page, paste a post URL, crawl. The crawl runs in your browser against `public.api.bsky.app`; lenses switch instantly once the web is loaded, and **Save JSON** downloads the same file the CLI would store. The page works offline after the first load (service worker).
+
+Dev loop:
 
 ```bash
-bsky-context fetch <url> --max-nodes 500    # cap at 500 posts
-bsky-context fetch <url> --max-depth 3      # max 3 hops from start post
-bsky-context fetch <url> --timeout 120      # 2 minute time limit
-bsky-context fetch <url> --fresh            # discard stored version, crawl from scratch
-bsky-context fetch <url> -c 4              # use 4 concurrent API requests (default: 2)
+wasm-pack build bsky-context-web --target web --out-dir ../web/pkg
+python3 -m http.server -d web        # any static server; the service worker is skipped on localhost
 ```
 
-Re-running `fetch` on a previously crawled post automatically loads the existing web and merges in new posts. Posts whose quote count hasn't changed are skipped for quote-fetching, making updates fast. In the rare case where a quote is deleted and a new one is created between crawls (keeping the count the same), the new quote won't be detected — use `--fresh` to force a complete re-crawl.
+Deploy: push a version tag (`git tag v0.1.0 && git push origin v0.1.0`). One-time setup: repo Settings → Pages → Source: "GitHub Actions".
 
-## Claude Code skill
+## Worker
 
-This repo includes a Claude Code skill that teaches Claude when and how to use the tool. If you clone the repo and work inside it, the skill is picked up automatically.
+A Cloudflare Worker that turns one URL into a whole conversation, for models whose only tool is "fetch this page".
 
-To install the skill globally (available in any project):
+```
+GET /t/<handle-or-did>/<rkey>            markdown: header + lens output (default lens: tree)
+GET /t/<handle-or-did>/<rkey>.json       the raw web
+GET /?url=https://bsky.app/profile/...   same, by URL
+    ?lens=linear&top=5&hops=1&uri=...&after=...&before=...&q=...&author=...&fresh=1
+```
+
+Crawls are bounded per request (`CRAWL_MAX_NODES`, `CRAWL_TIMEOUT_SECS`, `CRAWL_CONCURRENCY` in `wrangler.toml`; defaults 500 posts / 20 s / 4) because a model's URL fetcher times out in tens of seconds. When the budget is hit the response says so and how many threads are unexplored; fetching the same URL again continues from the cached web. Caching needs a KV namespace bound as `WEBS` (`wrangler kv namespace create WEBS`, paste the id into `wrangler.toml`); entries expire 30 days after their last update. Without KV every request crawls from scratch.
 
 ```bash
-cp -r .claude/skills/bsky-context ~/.claude/skills/
+cargo install worker-build            # needs OpenSSL headers (libssl-dev)
+cd bsky-context-worker
+npx wrangler dev                      # local
+npx wrangler deploy                   # or run the "Deploy Cloudflare Worker" workflow
 ```
-
-Then Claude Code can fetch and analyze Bluesky conversations mid-conversation — just share a bsky.app link and ask about it.
 
 ## How it works
 
 1. **Fetch** the starting post's thread via `getPostThread` (reply tree + ancestors)
 2. **Discover** all quote posts via `getQuotes` for every post found
 3. **Recurse** — each quote post spawns its own thread crawl
-4. **Store** the complete graph as JSON in `~/.local/share/bsky-context/webs/`
+4. **Store** the complete graph as JSON
 5. **Render** through lenses on demand
 
-The crawl is a parallel thread-level BFS: each thread (reply tree) is the atomic unit, fetched in one API call, and quotes are the inter-thread links that drive further exploration. Multiple threads are fetched concurrently via an asyncio worker pool (default: 2 concurrent requests), with a global rate-limit pause that blocks all workers on 429 responses. Thread-level deduplication means if two quote posts point into the same thread, it's only fetched once. Configurable depth/breadth/timeout/concurrency limits keep things under control.
+The crawl is a thread-level BFS: each thread (reply tree) is the atomic unit, fetched in one API call, and quotes are the inter-thread links that drive further exploration. Requests run concurrently up to `-c`, with a global pause on 429 responses. Thread-level deduplication means two quote posts pointing into the same thread fetch it once. Depth, breadth, timeout, and concurrency limits keep it under control.
 
-## Storage
+## Layout
 
-Crawled conversations are stored as JSON files in `~/.local/share/bsky-context/webs/`. Each file contains the full graph: threads (reply trees keyed by root URI) and quote edges (cross-thread links). The format is stable and human-readable.
+Pure core, thin adapters. `bsky-context-core` holds the data model, crawler, and lenses and does no I/O; HTTP and time come in through two small traits, so the identical crawler runs natively, in a browser, and in a Worker.
+
+```
+bsky-context-core/     model, uri, api (wire types + Fetch/Clock traits), crawler, lens/
+bsky-context-cli/      the bsky-context binary
+bsky-context-web/      wasm-bindgen bridge      web/   framework-free page, build.mjs, service worker
+bsky-context-worker/   Cloudflare Worker        .claude/skills/bsky-context/   Claude Code skill
+src/, tests/           the original Python implementation, kept as the reference the port was verified against
+```
+
+```bash
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+```
 
 ## Prior art
 
