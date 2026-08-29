@@ -90,13 +90,10 @@ bsky-context list
 
 ## Without a shell
 
-If you cannot run commands but can fetch URLs, the same tool is deployed as a web
-service: fetch `https://<worker-host>/t/<handle>/<rkey>` (from
-`https://bsky.app/profile/<handle>/post/<rkey>`) and you get the web as markdown.
-Add `?lens=<name>` and the parameters above as query strings (`q` for the search
-query, `top`, `hops`, `uri`, `after`, `before`, `author`). Crawls are bounded per
-request; if the response says the budget was reached, fetch the same URL again to
-continue from the cached web.
+If the `bsky_context` MCP tool is available (the same tool as a remote
+connector), use it instead: `bsky_context(post=<URL>, lens=<name>, ...)` with
+the same lens names and parameters as `show`. Results are cached briefly, so
+switching lenses on the same post is cheap; pass `fresh=true` to re-crawl.
 
 ## Typical workflow
 

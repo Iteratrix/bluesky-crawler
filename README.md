@@ -8,7 +8,7 @@ Three ways to use it, all running the same Rust core:
 |---|---|---|
 | **CLI** `bsky-context` | You at a terminal, or Claude Code via the bundled skill | Natively, stores webs locally |
 | **Web app** | Anyone in a browser | Entirely client-side (WASM) on GitHub Pages; nothing leaves your machine |
-| **Worker** `/t/<handle>/<rkey>` | A language model that can fetch URLs (Claude on your phone, say) | A Cloudflare Worker that crawls on demand and returns markdown |
+| **MCP server** | Claude (or any MCP client) as a tool it can call itself | A Cloudflare Worker: one `bsky_context` tool, no auth, cached crawls |
 
 No login needed: Bluesky's public AppView serves everything the crawler uses unauthenticated.
 
@@ -26,7 +26,7 @@ bsky-context show <web-id> -l stats   # overview first for big webs
 
 **As a Claude Code skill:** copy `.claude/skills/bsky-context` to `~/.claude/skills/` and Claude can fetch and analyze any bsky.app link you share mid-conversation.
 
-**From a chat model that can fetch URLs:** deploy the worker (below) and hand the model `https://<your-worker>/t/alice.bsky.social/abc123`. It gets the whole web as markdown; `?lens=linear` and friends select the rendering.
+**From Claude in the app:** deploy the worker (below) and add it as a custom connector (Settings → Connectors → Add custom connector, URL `https://<your-worker>/mcp`, no authentication). Claude then has a `bsky_context` tool it calls whenever a Bluesky post comes up, choosing lenses itself.
 
 ## What it does
 
@@ -70,23 +70,22 @@ python3 -m http.server -d web        # any static server; the service worker is 
 
 Deploy: push a version tag (`git tag v0.1.0 && git push origin v0.1.0`). One-time setup: repo Settings → Pages → Source: "GitHub Actions".
 
-## Worker
+## MCP server (Cloudflare Worker)
 
-A Cloudflare Worker that turns one URL into a whole conversation, for models whose only tool is "fetch this page".
+A remote MCP server (Streamable HTTP, no authentication) exposing one tool:
 
 ```
-GET /t/<handle-or-did>/<rkey>            markdown: header + lens output (default lens: tree)
-GET /t/<handle-or-did>/<rkey>.json       the raw web
-GET /?url=https://bsky.app/profile/...   same, by URL
-    ?lens=linear&top=5&hops=1&uri=...&after=...&before=...&q=...&author=...&fresh=1
+bsky_context(post, lens?, top?, hops?, uri?, after?, before?, query?, author?, fresh?)
 ```
 
-Crawls are bounded per request (`CRAWL_MAX_NODES`, `CRAWL_TIMEOUT_SECS`, `CRAWL_CONCURRENCY` in `wrangler.toml`; defaults 500 posts / 20 s / 4) because a model's URL fetcher times out in tens of seconds. When the budget is hit the response says so and how many threads are unexplored; fetching the same URL again continues from the cached web. Caching needs a KV namespace bound as `WEBS` (`wrangler kv namespace create WEBS`, paste the id into `wrangler.toml`); entries expire 30 days after their last update. Without KV every request crawls from scratch.
+`post` is a bsky.app URL or `at://` URI; the other arguments are the lens parameters from the table above. The result is text: a short header (counts, whether the crawl finished) followed by the lens output.
+
+Crawls are bounded per call (`CRAWL_MAX_NODES`, `CRAWL_TIMEOUT_SECS`, `CRAWL_CONCURRENCY` in `wrangler.toml`; defaults 500 posts / 20 s / 4) because MCP clients time out tool calls. When the budget is hit the result says so and how many threads are unexplored; calling again with the same post continues from the cached web. With a `WEBS` KV namespace bound (`wrangler kv namespace create WEBS`, paste the id into `wrangler.toml`), a call within `CACHE_FRESH_SECS` (default 300) of the last crawl renders the cached web without crawling, so switching lenses is instant; entries expire 30 days after their last update. Without KV every call crawls from scratch.
 
 ```bash
 cargo install worker-build            # needs OpenSSL headers (libssl-dev)
 cd bsky-context-worker
-npx wrangler dev                      # local
+npx wrangler dev                      # local; POST JSON-RPC to http://localhost:8787/mcp
 npx wrangler deploy                   # or run the "Deploy Cloudflare Worker" workflow
 ```
 
@@ -108,7 +107,7 @@ Pure core, thin adapters. `bsky-context-core` holds the data model, crawler, and
 bsky-context-core/     model, uri, api (wire types + Fetch/Clock traits), crawler, lens/
 bsky-context-cli/      the bsky-context binary
 bsky-context-web/      wasm-bindgen bridge      web/   framework-free page, build.mjs, service worker
-bsky-context-worker/   Cloudflare Worker        .claude/skills/bsky-context/   Claude Code skill
+bsky-context-worker/   Cloudflare Worker (MCP)  .claude/skills/bsky-context/   Claude Code skill
 ```
 
 ```bash

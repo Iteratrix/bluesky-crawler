@@ -1,22 +1,26 @@
-//! Cloudflare Worker adapter: crawls a context web per request and returns
-//! it as markdown, so a language model with a URL fetcher can read a whole
-//! Bluesky conversation from one link.
+//! Cloudflare Worker adapter: an MCP server that crawls a Bluesky context
+//! web per tool call and returns it as text, so a chat client with a
+//! custom connector can read a whole conversation from one post URL.
 //!
-//! Crawls are bounded per request (see the `CRAWL_*` variables in
-//! `wrangler.toml`) and cached in the `WEBS` KV namespace when it is bound,
-//! so repeated fetches of the same URL continue where the last one stopped.
+//! Crawls are bounded per call (see the `CRAWL_*` variables in
+//! `wrangler.toml`) and cached in the `WEBS` KV namespace when it is bound:
+//! a call within `CACHE_FRESH_SECS` of the last crawl renders the cached
+//! web directly (cheap lens switching), later calls continue the crawl
+//! from where it stopped.
 
+mod cache;
 mod client;
-pub mod route;
+pub mod mcp;
 
 use core::time::Duration;
 
 use bsky_context_core::crawler::{CrawlOptions, CrawlResult, crawl};
-use bsky_context_core::model::ContextWeb;
-use worker::{Context, Env, Request, Response, Result, event, kv::KvStore};
+use serde_json::Value;
+use worker::{Context, Env, Method, Request, Response, Result, event, kv::KvStore};
 
+use crate::cache::Envelope;
 use crate::client::{WorkerClock, WorkerFetch};
-use crate::route::{Format, Route, RouteError, WebQuery, cache_key, cached_web_matches, compose};
+use crate::mcp::{Provenance, Step, ToolArgs, compose, tool_error, tool_result};
 
 const KV_BINDING: &str = "WEBS";
 const CACHE_TTL_SECS: u64 = 60 * 60 * 24 * 30;
@@ -27,13 +31,24 @@ fn start() {
 }
 
 #[event(fetch)]
-async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
-    let url = req.url()?;
-    match route::parse(&url) {
-        Ok(Route::Home) => markdown(route::USAGE),
-        Ok(Route::Web(query)) => serve_web(query, &env).await,
-        Err(RouteError::NotFound) => Response::error("not found", 404),
-        Err(RouteError::BadRequest(message)) => Response::error(message, 400),
+async fn fetch(mut req: Request, env: Env, _ctx: Context) -> Result<Response> {
+    let path = req.path();
+    let path = path.trim_end_matches('/');
+    match (req.method(), path) {
+        (Method::Get, "") => markdown(mcp::USAGE),
+        (Method::Post, "/mcp") => serve_mcp(&mut req, &env).await,
+        (
+            Method::Get
+            | Method::Head
+            | Method::Put
+            | Method::Delete
+            | Method::Options
+            | Method::Connect
+            | Method::Patch
+            | Method::Trace,
+            "/mcp",
+        ) => Response::error("use POST for MCP over Streamable HTTP", 405),
+        _ => Response::error("not found", 404),
     }
 }
 
@@ -45,36 +60,69 @@ fn markdown(body: &str) -> Result<Response> {
     Ok(response)
 }
 
+fn env_number(env: &Env, name: &str) -> Option<u64> {
+    env.var(name).ok()?.to_string().parse().ok()
+}
+
 fn budget(env: &Env) -> CrawlOptions {
-    let number = |name: &str| {
-        env.var(name)
-            .ok()
-            .and_then(|v| v.to_string().parse::<u64>().ok())
-    };
     let defaults = CrawlOptions::default();
     CrawlOptions {
-        max_nodes: number("CRAWL_MAX_NODES").map_or(500, |n| n.try_into().unwrap_or(usize::MAX)),
-        max_depth: number("CRAWL_MAX_DEPTH").map(|n| n.try_into().unwrap_or(usize::MAX)),
-        timeout: number("CRAWL_TIMEOUT_SECS").map_or(Duration::from_secs(20), Duration::from_secs),
-        concurrency: number("CRAWL_CONCURRENCY")
+        max_nodes: env_number(env, "CRAWL_MAX_NODES")
+            .map_or(500, |n| n.try_into().unwrap_or(usize::MAX)),
+        max_depth: env_number(env, "CRAWL_MAX_DEPTH").map(|n| n.try_into().unwrap_or(usize::MAX)),
+        timeout: env_number(env, "CRAWL_TIMEOUT_SECS")
+            .map_or(Duration::from_secs(20), Duration::from_secs),
+        concurrency: env_number(env, "CRAWL_CONCURRENCY")
             .map_or(4, |n| n.try_into().unwrap_or(defaults.concurrency)),
     }
 }
 
-async fn load_cached(kv: Option<&KvStore>, query: &WebQuery) -> Option<ContextWeb> {
-    if query.fresh {
-        return None;
-    }
-    let json = kv?.get(&cache_key(&query.post)).text().await.ok()??;
-    let web = ContextWeb::from_json(&json).ok()?;
-    cached_web_matches(&web, &query.post).then_some(web)
+fn cache_fresh_window(env: &Env) -> u64 {
+    env_number(env, "CACHE_FRESH_SECS").unwrap_or(300)
 }
 
-async fn store(kv: Option<&KvStore>, query: &WebQuery, web: &ContextWeb) {
+async fn serve_mcp(req: &mut Request, env: &Env) -> Result<Response> {
+    let body = req.text().await?;
+    let parsed = match mcp::parse_body(&body) {
+        Ok(parsed) => parsed,
+        Err(error) => return Ok(Response::from_json(&error)?.with_status(400)),
+    };
+    let mut replies = Vec::new();
+    for message in &parsed.messages {
+        match mcp::handle(message) {
+            Step::Reply(value) => replies.push(value),
+            Step::Ignore => {}
+            Step::CallTool { id, args } => replies.push(run_tool(id, args, env).await),
+        }
+    }
+    if replies.is_empty() {
+        return Ok(Response::empty()?.with_status(202));
+    }
+    let payload = if parsed.batch {
+        Value::Array(replies)
+    } else {
+        replies.swap_remove(0)
+    };
+    Response::from_json(&payload)
+}
+
+async fn load_cached(kv: Option<&KvStore>, args: &ToolArgs) -> Option<Envelope> {
+    if args.fresh {
+        return None;
+    }
+    let json = kv?.get(&cache::key(&args.post)).text().await.ok()??;
+    let envelope: Envelope = serde_json::from_str(&json).ok()?;
+    cache::matches(&envelope.web, &args.post).then_some(envelope)
+}
+
+async fn store(kv: Option<&KvStore>, args: &ToolArgs, envelope: &Envelope) {
     let Some(kv) = kv else {
         return;
     };
-    let Ok(put) = kv.put(&cache_key(&query.post), web.to_json_pretty()) else {
+    let Ok(json) = serde_json::to_string(envelope) else {
+        return;
+    };
+    let Ok(put) = kv.put(&cache::key(&args.post), json) else {
         return;
     };
     if let Err(err) = put.expiration_ttl(CACHE_TTL_SECS).execute().await {
@@ -82,10 +130,24 @@ async fn store(kv: Option<&KvStore>, query: &WebQuery, web: &ContextWeb) {
     }
 }
 
-async fn serve_web(query: WebQuery, env: &Env) -> Result<Response> {
+async fn run_tool(id: Value, args: ToolArgs, env: &Env) -> Value {
     let kv = env.kv(KV_BINDING).ok();
     let options = budget(env);
-    let existing = load_cached(kv.as_ref(), &query).await;
+    let now_ms = js_sys::Date::now();
+
+    let cached = load_cached(kv.as_ref(), &args).await;
+    if let Some(envelope) = &cached
+        && envelope.age_secs(now_ms) < cache_fresh_window(env)
+    {
+        let age_secs = envelope.age_secs(now_ms);
+        let text = compose(
+            &envelope.web,
+            &args.lens,
+            Provenance::Cached { age_secs },
+            &options,
+        );
+        return tool_result(&id, &text);
+    }
 
     let fetch = WorkerFetch::public();
     let clock = WorkerClock::new();
@@ -96,24 +158,35 @@ async fn serve_web(query: WebQuery, env: &Env) -> Result<Response> {
     } = crawl(
         &fetch,
         &clock,
-        &query.post.at_uri(),
+        &args.post.at_uri(),
         &options,
-        existing,
+        cached.map(|e| e.web),
         &mut |_| {},
     )
     .await;
 
     if web.node_count() == 0 {
-        return Response::error("post not found or not fetchable", 404);
+        return tool_error(
+            &id,
+            &format!(
+                "No posts found for {}: the post may not exist, or Bluesky may be unreachable.",
+                args.post.at_uri()
+            ),
+        );
     }
-    store(kv.as_ref(), &query, &web).await;
-
-    let response = match query.format {
-        Format::Json => Response::from_json(&web)?,
-        Format::Markdown => markdown(&compose(&web, &query.lens, stop_reason, pending, &options))?,
+    let envelope = Envelope {
+        stored_ms: js_sys::Date::now(),
+        web,
     };
-    response
-        .headers()
-        .set("cache-control", "public, max-age=60")?;
-    Ok(response)
+    store(kv.as_ref(), &args, &envelope).await;
+    let text = compose(
+        &envelope.web,
+        &args.lens,
+        Provenance::Crawled {
+            stop_reason,
+            pending,
+        },
+        &options,
+    );
+    tool_result(&id, &text)
 }

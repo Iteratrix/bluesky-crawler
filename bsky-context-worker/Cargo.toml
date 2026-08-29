@@ -10,6 +10,7 @@ description = "Cloudflare Worker serving Bluesky context webs as text for langua
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+az = "1"
 bsky-context-core = { path = "../bsky-context-core" }
 console_error_panic_hook = "0.1"
 futures = "0.3"
@@ -17,8 +18,6 @@ js-sys = "0.3"
 log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-thiserror = "2"
-url = "2"
 worker = "0.8"
 
 [lints]

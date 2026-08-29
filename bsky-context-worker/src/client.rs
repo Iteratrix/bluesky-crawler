@@ -7,7 +7,7 @@ use bsky_context_core::api::{
 };
 use futures::FutureExt;
 use serde::de::DeserializeOwned;
-use url::Url;
+use worker::Url;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 

@@ -20,7 +20,7 @@ Bluesky Context Web crawler — fetches the full DAG of replies + quote posts fo
 - `bsky-context-core/` — `model.rs` (Post, Thread, QuoteEdge, ContextWeb, storage JSON), `uri.rs` (AT URI / bsky.app URL parsing), `api.rs` (AppView wire types, `Fetch`/`Clock` traits), `crawler.rs` (thread-level BFS with dedup and smart re-fetch), `lens/` (one file per lens, shared helpers in `mod.rs`)
 - `bsky-context-cli/` — `bsky-context` binary: `fetch`, `show`, `list`; stores webs in `~/.local/share/bsky-context/webs/`
 - `bsky-context-web/` + `web/` — wasm-bindgen bridge and framework-free page, deployed to GitHub Pages on version tags; crawls client-side against the public AppView
-- `bsky-context-worker/` — Cloudflare Worker serving `/t/<handle>/<rkey>` as markdown for URL-fetching language models; bounded per-request crawl, optional KV cache
+- `bsky-context-worker/` — Cloudflare Worker exposing an MCP server at `/mcp` (Streamable HTTP, one `bsky_context` tool; `mcp.rs` is the pure protocol module); bounded per-call crawl, optional KV cache with a freshness window for cheap lens switching
 
 ## Bluesky API notes
 

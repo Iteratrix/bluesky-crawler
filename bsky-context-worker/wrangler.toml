@@ -6,16 +6,20 @@ workers_dev = true
 [build]
 command = "worker-build --release"
 
-# Per-request crawl budget. A language model's URL fetcher times out in
-# tens of seconds, so keep the timeout well under that; repeated fetches of
-# the same URL continue from the cached web.
+# Per-call crawl budget. MCP clients time out tool calls after tens of
+# seconds, so keep the timeout well under that; repeated calls for the same
+# post continue from the cached web.
 [vars]
 CRAWL_MAX_NODES = "500"
 CRAWL_TIMEOUT_SECS = "20"
 CRAWL_CONCURRENCY = "4"
+# A call this soon after the last crawl renders the cached web without
+# crawling, which makes switching lenses cheap.
+CACHE_FRESH_SECS = "300"
 
-# Optional: cache crawled webs so a second fetch continues where the first
-# stopped. Create with `wrangler kv namespace create WEBS` and paste the id.
+# Optional: cache crawled webs so lens switches are instant and a second
+# call continues where the first stopped. Create with
+# `wrangler kv namespace create WEBS` and paste the id.
 # [[kv_namespaces]]
 # binding = "WEBS"
 # id = ""
