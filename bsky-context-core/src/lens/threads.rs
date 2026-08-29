@@ -1,5 +1,170 @@
-use crate::model::ContextWeb;
+use core::fmt;
+use std::cmp::Reverse;
 
-pub(super) fn render(_web: &ContextWeb, _top: usize) -> String {
-    String::new()
+use crate::model::{ContextWeb, Thread};
+
+use super::{author_name, truncate};
+
+/// Formats an integer with `,` between groups of three digits.
+pub(super) fn comma(value: impl fmt::Display) -> String {
+    let digits = value.to_string();
+    let leading = digits.len() % 3;
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (offset, digit) in digits.char_indices() {
+        if offset > 0 && offset % 3 == leading {
+            out.push(',');
+        }
+        out.push(digit);
+    }
+    out
+}
+
+struct ThreadInfo<'a> {
+    size: usize,
+    engagement: u64,
+    name: String,
+    text: String,
+    uri: &'a str,
+}
+
+/// Lists threads sorted by post count, largest first.
+pub(super) fn render(web: &ContextWeb, top: usize) -> String {
+    let mut infos: Vec<ThreadInfo<'_>> = Vec::new();
+    for Thread { root_uri, posts } in web.threads().values() {
+        let engagement: u64 = posts
+            .values()
+            .map(|post| u64::from(post.engagement()))
+            .sum();
+        let Some(post) = posts.get(root_uri).or_else(|| posts.values().next()) else {
+            continue;
+        };
+        infos.push(ThreadInfo {
+            size: posts.len(),
+            engagement,
+            name: author_name(post),
+            text: truncate(&post.text, 80),
+            uri: post.uri.as_str(),
+        });
+    }
+
+    infos.sort_by_key(|info| Reverse(info.size));
+
+    let shown = top.min(infos.len());
+    let mut lines = vec![
+        format!(
+            "=== THREADS ({} total, showing top {shown}) ===",
+            comma(web.thread_count())
+        ),
+        String::new(),
+    ];
+
+    for (
+        offset,
+        ThreadInfo {
+            size,
+            engagement,
+            name,
+            text,
+            uri,
+        },
+    ) in infos.iter().take(top).enumerate()
+    {
+        let rank = offset + 1;
+        lines.push(format!(
+            "#{rank:<3} {} posts | {} engagement | {name}",
+            comma(size),
+            comma(engagement)
+        ));
+        lines.push(format!("     {text}"));
+        lines.push(format!("     {uri}"));
+        lines.push(String::new());
+    }
+
+    lines.join("\n").trim_end().to_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::lens::fixtures::{ROOT, test_web};
+    use crate::model::ContextWeb;
+
+    use super::{comma, render};
+
+    #[test]
+    fn comma_groups_digits() {
+        assert_eq!(comma(0_u32), "0");
+        assert_eq!(comma(999_u32), "999");
+        assert_eq!(comma(1_000_u32), "1,000");
+        assert_eq!(comma(12_345_u32), "12,345");
+        assert_eq!(comma(123_456_u32), "123,456");
+        assert_eq!(comma(1_234_567_u64), "1,234,567");
+    }
+
+    #[test]
+    fn renders_both_threads_in_size_order() {
+        let out = render(&test_web(), 20);
+        assert_eq!(
+            out,
+            "=== THREADS (2 total, showing top 2) ===\n\
+             \n\
+             #1   2 posts | 16 engagement | Alice (@alice.bsky.social)\n\
+             \x20    Original post\n\
+             \x20    at://did:plc:a/app.bsky.feed.post/1\n\
+             \n\
+             #2   2 posts | 6 engagement | @carol.bsky.social\n\
+             \x20    Quote post\n\
+             \x20    at://did:plc:c/app.bsky.feed.post/3"
+        );
+    }
+
+    #[test]
+    fn shows_post_counts_and_engagement() {
+        let out = render(&test_web(), 20);
+        assert!(out.contains("2 posts"));
+        assert!(out.contains("engagement"));
+        assert!(out.contains("Original post"));
+    }
+
+    #[test]
+    fn top_smaller_than_thread_count_truncates() {
+        let out = render(&test_web(), 1);
+        assert!(out.starts_with("=== THREADS (2 total, showing top 1) ==="));
+        assert!(out.contains("Original post"));
+        assert!(!out.contains("Quote post"));
+    }
+
+    #[test]
+    fn top_larger_than_thread_count_clamps_header() {
+        let out = render(&test_web(), 99);
+        assert!(out.starts_with("=== THREADS (2 total, showing top 2) ==="));
+        assert_eq!(out.matches("posts |").count(), 2);
+    }
+
+    #[test]
+    fn top_zero_renders_header_only() {
+        let out = render(&test_web(), 0);
+        assert_eq!(out, "=== THREADS (2 total, showing top 0) ===");
+    }
+
+    #[test]
+    fn thread_without_its_root_post_falls_back_to_the_first_post() {
+        let mut web = test_web();
+        let mut thread = web.remove_thread(ROOT).unwrap();
+        thread.posts.shift_remove(ROOT);
+        web.add_thread(thread);
+        let out = render(&web, 20);
+        assert!(out.contains("#1   2 posts | 6 engagement | @carol.bsky.social"));
+        assert!(out.contains("#2   1 posts | 2 engagement | Bob (@bob.bsky.social)"));
+        assert!(out.contains("     Direct reply"));
+        assert!(out.contains("     at://did:plc:b/app.bsky.feed.post/2"));
+    }
+
+    #[test]
+    fn empty_web_renders_header_only() {
+        let web = ContextWeb::new(
+            "at://did:plc:a/app.bsky.feed.post/1",
+            "2026-01-01T00:00:00Z",
+        );
+        assert_eq!(render(&web, 20), "=== THREADS (0 total, showing top 0) ===");
+    }
 }
