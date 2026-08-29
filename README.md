@@ -26,7 +26,21 @@ bsky-context show <web-id> -l stats   # overview first for big webs
 
 **As a Claude Code skill:** copy `.claude/skills/bsky-context` to `~/.claude/skills/` and Claude can fetch and analyze any bsky.app link you share mid-conversation.
 
-**From Claude in the app:** deploy the worker (below) and add it as a custom connector (Settings → Connectors → Add custom connector, URL `https://<your-worker>/mcp`, no authentication). Claude then has a `bsky_context` tool it calls whenever a Bluesky post comes up, choosing lenses itself.
+**From Claude, ChatGPT, Cursor, or any MCP client:** connect the MCP server; see [Connect the MCP server](#connect-the-mcp-server). The client gets a `bsky_context` tool it calls whenever a Bluesky post comes up, choosing lenses itself.
+
+## Connect the MCP server
+
+A public instance runs at `https://bsky-context.mimirs.workers.dev/mcp` (Streamable HTTP, no authentication, best effort; self-host with the instructions below if you depend on it). The server exposes one tool, `bsky_context`, and tells the model when to use it.
+
+| Client | How |
+|---|---|
+| Claude (web, desktop, mobile; Pro/Max/Team) | Settings → Connectors → Add custom connector → URL `https://bsky-context.mimirs.workers.dev/mcp`, no OAuth |
+| Claude Code | `claude mcp add --transport http bsky-context https://bsky-context.mimirs.workers.dev/mcp` |
+| Cursor | `.cursor/mcp.json`: `{"mcpServers":{"bsky-context":{"url":"https://bsky-context.mimirs.workers.dev/mcp"}}}` |
+| ChatGPT | Settings → Connectors → Advanced → Developer mode → Create, with the same URL (custom connectors require Plus/Pro/Team/Enterprise) |
+| Anything else | Any client that accepts a remote MCP server URL over Streamable HTTP |
+
+Then ask about a Bluesky link. The tool's description carries the lens guide, so no prompt engineering is needed; `lens=stats` first, then `highlights`, `neighborhood`, or `search` is the workflow the model is nudged toward on large conversations.
 
 ## What it does
 
@@ -87,6 +101,7 @@ cargo install worker-build            # needs OpenSSL headers (libssl-dev)
 cd bsky-context-worker
 npx wrangler dev                      # local; POST JSON-RPC to http://localhost:8787/mcp
 npx wrangler deploy                   # or run the "Deploy Cloudflare Worker" workflow
+npx wrangler tail                     # live logs: crawl warnings, KV failures
 ```
 
 ## How it works

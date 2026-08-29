@@ -21,8 +21,13 @@ command -v bsky-context >/dev/null && echo "global" || echo "local"
 ```
 - If **global**: use `bsky-context <command>`
 - If **local** (running inside the project repo): use `cargo run -q -p bsky-context-cli -- <command>`
+- If neither: install with `cargo install --git https://github.com/Iteratrix/bluesky-crawler bsky-context-cli`
 
 Use the appropriate prefix for all commands below. No login or credentials are needed.
+
+If a `bsky_context` MCP tool is available in this session, prefer it over the
+CLI: same lenses and parameters, no local storage, results cached server-side.
+To add it: `claude mcp add --transport http bsky-context https://bsky-context.mimirs.workers.dev/mcp`
 
 ## Fetching a conversation
 

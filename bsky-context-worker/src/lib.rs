@@ -28,6 +28,7 @@ const CACHE_TTL_SECS: u64 = 60 * 60 * 24 * 30;
 #[event(start)]
 fn start() {
     console_error_panic_hook::set_once();
+    let _ = console_log::init_with_level(log::Level::Info);
 }
 
 #[event(fetch)]
@@ -110,7 +111,14 @@ async fn load_cached(kv: Option<&KvStore>, args: &ToolArgs) -> Option<Envelope> 
     if args.fresh {
         return None;
     }
-    let json = kv?.get(&cache::key(&args.post)).text().await.ok()??;
+    let key = cache::key(&args.post);
+    let json = match kv?.get(&key).text().await {
+        Ok(json) => json?,
+        Err(err) => {
+            log::warn!("KV get {key} failed (crawling without cache): {err}");
+            return None;
+        }
+    };
     let envelope: Envelope = serde_json::from_str(&json).ok()?;
     cache::matches(&envelope.web, &args.post).then_some(envelope)
 }
@@ -122,11 +130,16 @@ async fn store(kv: Option<&KvStore>, args: &ToolArgs, envelope: &Envelope) {
     let Ok(json) = serde_json::to_string(envelope) else {
         return;
     };
-    let Ok(put) = kv.put(&cache::key(&args.post), json) else {
-        return;
+    let key = cache::key(&args.post);
+    let put = match kv.put(&key, json) {
+        Ok(put) => put,
+        Err(err) => {
+            log::warn!("KV put {key} could not be prepared: {err}");
+            return;
+        }
     };
     if let Err(err) = put.expiration_ttl(CACHE_TTL_SECS).execute().await {
-        log::warn!("KV put failed: {err}");
+        log::warn!("KV put {key} failed (cache disabled until it recovers): {err}");
     }
 }
 
