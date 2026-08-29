@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use indexmap::IndexMap;
 
+use super::split_lines;
 use crate::model::{ContextWeb, Post, QuoteEdge};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,7 +52,7 @@ fn push_post(lines: &mut Vec<String>, post: &Post, depth: usize, kind: Option<Ed
     let time = super::short_time(&post.created_at);
     lines.push(format!("{indent}{tag} {name}  {time}"));
 
-    for text_line in post.text.lines() {
+    for text_line in split_lines(&post.text) {
         lines.push(format!("{indent}  {text_line}"));
     }
 

@@ -2,8 +2,7 @@ use indexmap::IndexMap;
 
 use crate::model::{ContextWeb, Post, Thread};
 
-use super::threads::comma;
-use super::{author_name, short_time, truncate};
+use super::{author_name, short_time, thousands, truncate};
 
 /// Filters posts by a text query and/or an author handle substring.
 pub(super) fn render(web: &ContextWeb, query: Option<&str>, author: Option<&str>) -> String {
@@ -42,8 +41,8 @@ pub(super) fn render(web: &ContextWeb, query: Option<&str>, author: Option<&str>
         format!(
             "{} | {} matches in {} posts",
             filters.join(" | "),
-            comma(matches.len()),
-            comma(web.node_count())
+            thousands(matches.len()),
+            thousands(web.node_count())
         ),
         String::new(),
     ];
@@ -60,7 +59,7 @@ pub(super) fn render(web: &ContextWeb, query: Option<&str>, author: Option<&str>
         ));
         lines.push(format!(
             "    Thread: {thread_root} ({} posts)",
-            comma(thread_size)
+            thousands(thread_size)
         ));
 
         let mut context: Vec<String> = Vec::new();
@@ -79,9 +78,9 @@ pub(super) fn render(web: &ContextWeb, query: Option<&str>, author: Option<&str>
         if post.engagement() > 0 {
             lines.push(format!(
                 "    ({} likes, {} reposts, {} quotes)",
-                comma(post.like_count),
-                comma(post.repost_count),
-                comma(post.quote_count)
+                thousands(post.like_count),
+                thousands(post.repost_count),
+                thousands(post.quote_count)
             ));
         }
         lines.push(String::new());

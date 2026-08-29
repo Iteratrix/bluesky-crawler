@@ -168,6 +168,58 @@ impl LensKind {
     /// Returns the lens with default parameters.
     #[must_use]
     pub fn with_defaults(self) -> Lens {
+        self.with_params(&LensParams::default())
+    }
+}
+
+/// Loose lens parameters as they arrive from a command line or a URL.
+///
+/// Every field is optional; [`LensKind::with_params`] fills in defaults for
+/// the lens being built and ignores fields the lens does not use.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LensParams {
+    /// Result count for `threads` and `highlights`.
+    pub top: Option<usize>,
+    /// Hop distance for `neighborhood`.
+    pub hops: Option<usize>,
+    /// Target post for `neighborhood`.
+    pub uri: Option<String>,
+    /// Lower bound for `timeline`.
+    pub after: Option<String>,
+    /// Upper bound for `timeline`.
+    pub before: Option<String>,
+    /// Text query for `search`.
+    pub query: Option<String>,
+    /// Author filter for `search`.
+    pub author: Option<String>,
+}
+
+impl LensKind {
+    /// Builds the lens from loose parameters, defaulting whatever is absent.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bsky_context_core::lens::{Lens, LensKind, LensParams, DEFAULT_HOPS};
+    ///
+    /// let params = LensParams { top: Some(5), ..LensParams::default() };
+    /// assert_eq!(LensKind::Threads.with_params(&params), Lens::Threads { top: 5 });
+    /// assert_eq!(
+    ///     LensKind::Neighborhood.with_params(&params),
+    ///     Lens::Neighborhood { uri: None, hops: DEFAULT_HOPS },
+    /// );
+    /// ```
+    #[must_use]
+    pub fn with_params(self, params: &LensParams) -> Lens {
+        let LensParams {
+            top,
+            hops,
+            uri,
+            after,
+            before,
+            query,
+            author,
+        } = params;
         match self {
             Self::Tree => Lens::Tree,
             Self::Linear => Lens::Linear,
@@ -175,22 +227,22 @@ impl LensKind {
             Self::Raw => Lens::Raw,
             Self::Stats => Lens::Stats,
             Self::Threads => Lens::Threads {
-                top: DEFAULT_THREADS_TOP,
+                top: top.unwrap_or(DEFAULT_THREADS_TOP),
             },
             Self::Highlights => Lens::Highlights {
-                top: DEFAULT_HIGHLIGHTS_TOP,
+                top: top.unwrap_or(DEFAULT_HIGHLIGHTS_TOP),
             },
             Self::Neighborhood => Lens::Neighborhood {
-                uri: None,
-                hops: DEFAULT_HOPS,
+                uri: uri.clone(),
+                hops: hops.unwrap_or(DEFAULT_HOPS),
             },
             Self::Timeline => Lens::Timeline {
-                after: None,
-                before: None,
+                after: after.clone(),
+                before: before.clone(),
             },
             Self::Search => Lens::Search {
-                query: None,
-                author: None,
+                query: query.clone(),
+                author: author.clone(),
             },
         }
     }
@@ -283,6 +335,53 @@ pub fn truncate(text: &str, max_len: usize) -> String {
     let keep = max_len.saturating_sub(3);
     let mut out: String = text.chars().take(keep).collect();
     out.push_str("...");
+    out
+}
+
+/// Splits text into lines the way Python's `str.splitlines()` does.
+///
+/// Breaks on `\n`, `\r`, `\r\n`, and the other Unicode line boundaries
+/// (`\x0b`, `\x0c`, `\x1c`-`\x1e`, `\u{85}`, `\u{2028}`, `\u{2029}`), without
+/// a trailing empty line when the text ends with a boundary.
+#[must_use]
+pub fn split_lines(text: &str) -> Vec<&str> {
+    const LINE_BREAKS: [char; 10] = [
+        '\n', '\r', '\x0b', '\x0c', '\x1c', '\x1d', '\x1e', '\u{85}', '\u{2028}', '\u{2029}',
+    ];
+    let mut lines = Vec::new();
+    let mut start = 0;
+    let mut chars = text.char_indices().peekable();
+    while let Some((index, ch)) = chars.next() {
+        if !LINE_BREAKS.contains(&ch) {
+            continue;
+        }
+        lines.push(&text[start..index]);
+        if ch == '\r'
+            && let Some((next_index, '\n')) = chars.peek().copied()
+        {
+            chars.next();
+            start = next_index + 1;
+            continue;
+        }
+        start = index + ch.len_utf8();
+    }
+    if start < text.len() {
+        lines.push(&text[start..]);
+    }
+    lines
+}
+
+/// Formats a number with thousands separators, like Python's `{n:,}`.
+#[must_use]
+pub fn thousands(value: impl fmt::Display) -> String {
+    let digits = value.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (position, digit) in digits.chars().enumerate() {
+        if position > 0 && (digits.len() - position).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(digit);
+    }
     out
 }
 
@@ -490,6 +589,45 @@ mod tests {
     }
 
     #[test]
+    fn with_params_applies_and_ignores_fields() {
+        let params = LensParams {
+            top: Some(3),
+            hops: Some(1),
+            uri: Some("at://x".into()),
+            after: Some("2026".into()),
+            before: None,
+            query: Some("q".into()),
+            author: Some("a".into()),
+        };
+        assert_eq!(
+            LensKind::Highlights.with_params(&params),
+            Lens::Highlights { top: 3 }
+        );
+        assert_eq!(
+            LensKind::Neighborhood.with_params(&params),
+            Lens::Neighborhood {
+                uri: Some("at://x".into()),
+                hops: 1
+            }
+        );
+        assert_eq!(
+            LensKind::Timeline.with_params(&params),
+            Lens::Timeline {
+                after: Some("2026".into()),
+                before: None
+            }
+        );
+        assert_eq!(
+            LensKind::Search.with_params(&params),
+            Lens::Search {
+                query: Some("q".into()),
+                author: Some("a".into())
+            }
+        );
+        assert_eq!(LensKind::Tree.with_params(&params), Lens::Tree);
+    }
+
+    #[test]
     fn short_time_formats() {
         assert_eq!(short_time("2026-01-15T10:05:30.123Z"), "2026-01-15 10:05");
         assert_eq!(short_time(""), "?");
@@ -513,6 +651,29 @@ mod tests {
         assert_eq!(truncate("a\nb  ", 80), "a b");
         assert_eq!(truncate("abcdefghij", 8), "abcde...");
         assert_eq!(truncate("héllo wörld", 8), "héllo...");
+    }
+
+    #[test]
+    fn split_lines_matches_python_splitlines() {
+        assert_eq!(split_lines(""), Vec::<&str>::new());
+        assert_eq!(split_lines("a"), vec!["a"]);
+        assert_eq!(split_lines("a\nb"), vec!["a", "b"]);
+        assert_eq!(split_lines("a\n"), vec!["a"]);
+        assert_eq!(split_lines("a\r\nb"), vec!["a", "b"]);
+        assert_eq!(split_lines("a\rb"), vec!["a", "b"]);
+        assert_eq!(split_lines("a\n\nb"), vec!["a", "", "b"]);
+        assert_eq!(split_lines("a\u{2028}\nb"), vec!["a", "", "b"]);
+        assert_eq!(split_lines("a\u{85}b\x0cc"), vec!["a", "b", "c"]);
+        assert_eq!(split_lines("\n"), vec![""]);
+    }
+
+    #[test]
+    fn thousands_groups_digits() {
+        assert_eq!(thousands(0_usize), "0");
+        assert_eq!(thousands(999_u32), "999");
+        assert_eq!(thousands(1_000_usize), "1,000");
+        assert_eq!(thousands(12_345_u32), "12,345");
+        assert_eq!(thousands(1_234_567_u64), "1,234,567");
     }
 
     #[test]

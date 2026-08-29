@@ -1,23 +1,11 @@
 use core::cmp::Reverse;
-use core::fmt;
 use std::collections::BTreeMap;
 
 use az::Az;
 use indexmap::IndexMap;
 
+use super::thousands;
 use crate::model::{ContextWeb, Post, Thread};
-
-fn thousands(value: impl fmt::Display) -> String {
-    let digits = value.to_string();
-    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
-    for (position, digit) in digits.chars().enumerate() {
-        if position > 0 && (digits.len() - position).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(digit);
-    }
-    out
-}
 
 fn percent(count: usize, total: usize) -> f64 {
     if total == 0 {
@@ -179,7 +167,7 @@ pub(super) fn render(web: &ContextWeb) -> String {
 #[cfg(test)]
 mod tests {
     use super::super::fixtures::{QUOTE, REPLY, ROOT, author, test_web};
-    use super::{render, thousands};
+    use super::render;
     use crate::model::{ContextWeb, Post, QuoteEdge, Thread};
 
     const EXPECTED: &str = "\
@@ -272,14 +260,6 @@ Top authors by post count:
 
 Top posts by engagement:"
         );
-    }
-
-    #[test]
-    fn thousands_groups_digits() {
-        assert_eq!(thousands(0_usize), "0");
-        assert_eq!(thousands(999_usize), "999");
-        assert_eq!(thousands(1_000_usize), "1,000");
-        assert_eq!(thousands(1_234_567_usize), "1,234,567");
     }
 
     #[test]

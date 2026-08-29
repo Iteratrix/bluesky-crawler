@@ -16,3 +16,6 @@ wheels/
 target/
 web/pkg/
 web/out/
+bsky-context-worker/build/
+.wrangler/
+.claude/worktrees/

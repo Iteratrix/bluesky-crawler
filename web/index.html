@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>bsky-context</title>
+<meta name="description" content="bsky-context: crawl the full conversation graph around a Bluesky post - replies and quote posts, recursively - entirely in your browser.">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<main>
+  <header>
+    <h1>bsky-context</h1>
+    <p class="tagline">Crawl the whole conversation around a Bluesky post &mdash; the
+    reply tree <em>and</em> every quote post, recursively. Runs in your browser
+    against Bluesky's public API; nothing is sent anywhere else.</p>
+  </header>
+
+  <form id="crawl-form" class="panel">
+    <label for="post-url">Post URL or AT URI</label>
+    <div class="row">
+      <input id="post-url" type="text" inputmode="url" autocomplete="off" spellcheck="false"
+             placeholder="https://bsky.app/profile/alice.bsky.social/post/abc123" required>
+      <button id="crawl-btn" type="submit">Crawl</button>
+    </div>
+    <details class="options">
+      <summary>Options</summary>
+      <div class="grid">
+        <label>Max posts <input id="opt-max-nodes" type="number" min="1" value="2000"></label>
+        <label>Max quote hops <input id="opt-max-depth" type="number" min="0" placeholder="unlimited"></label>
+        <label>Timeout (s) <input id="opt-timeout" type="number" min="1" value="300"></label>
+        <label>Concurrency <input id="opt-concurrency" type="number" min="1" max="8" value="2"></label>
+      </div>
+    </details>
+    <p id="status" class="status" aria-live="polite"></p>
+  </form>
+
+  <section id="result" hidden>
+    <div class="toolbar">
+      <label>Lens
+        <select id="lens"></select>
+      </label>
+      <span id="lens-params"></span>
+      <button id="copy-btn" type="button">Copy</button>
+      <button id="download-btn" type="button">Save JSON</button>
+    </div>
+    <pre id="output"></pre>
+  </section>
+
+  <footer>
+    <p>Built from <a href="https://github.com/Iteratrix/rust-wasm-pages-template">rust-wasm-pages-template</a>.
+    Source: <a href="https://github.com/Iteratrix/bluesky-crawler">bluesky-crawler</a>.</p>
+  </footer>
+</main>
+<script type="module" src="app.js"></script>
+</body>
+</html>

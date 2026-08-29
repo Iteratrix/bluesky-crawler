@@ -2,6 +2,9 @@
 resolver = "2"
 members = [
     "bsky-context-core",
+    "bsky-context-cli",
+    "bsky-context-web",
+    "bsky-context-worker",
 ]
 
 [workspace.package]

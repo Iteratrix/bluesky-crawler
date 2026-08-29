@@ -5,8 +5,7 @@ use indexmap::IndexMap;
 
 use crate::model::{ContextWeb, Post, QuoteEdge};
 
-use super::threads::comma;
-use super::{author_name, short_time, truncate};
+use super::{author_name, short_time, thousands, truncate};
 
 struct AuthorTotal {
     name: String,
@@ -56,8 +55,8 @@ fn most_quoted(web: &ContextWeb, top: usize, lines: &mut Vec<String>) {
         lines.push(format!("     {}", truncate(&post.text, 80)));
         lines.push(format!(
             "     ({} likes, {} reposts)",
-            comma(post.like_count),
-            comma(post.repost_count)
+            thousands(post.like_count),
+            thousands(post.repost_count)
         ));
         lines.push(String::new());
     }
@@ -109,9 +108,9 @@ fn highest_engagement(web: &ContextWeb, top: usize, lines: &mut Vec<String>) {
         let rank = offset + 1;
         lines.push(format!(
             "  {rank}. [{} likes, {} reposts, {} quotes] {}",
-            comma(post.like_count),
-            comma(post.repost_count),
-            comma(post.quote_count),
+            thousands(post.like_count),
+            thousands(post.repost_count),
+            thousands(post.quote_count),
             author_name(post)
         ));
         lines.push(format!("     {}", truncate(&post.text, 80)));
@@ -138,7 +137,7 @@ fn main_characters(web: &ContextWeb, top: usize, lines: &mut Vec<String>) {
         let rank = offset + 1;
         lines.push(format!(
             "  {rank}. {name} - {} total engagement",
-            comma(engagement)
+            thousands(engagement)
         ));
     }
     lines.push(String::new());

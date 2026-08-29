@@ -1,0 +1,23 @@
+# Deploys the Cloudflare Worker. Manual by design: run it from the Actions
+# tab once CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID are set as repo
+# secrets (token needs the "Edit Cloudflare Workers" template permissions).
+
+name: Deploy Cloudflare Worker
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: bsky-context-worker

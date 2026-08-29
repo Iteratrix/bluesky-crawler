@@ -4,8 +4,7 @@ use indexmap::IndexMap;
 
 use crate::model::{ContextWeb, Post, QuoteEdge};
 
-use super::threads::comma;
-use super::{author_name, short_time};
+use super::{author_name, short_time, split_lines, thousands};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Edge {
@@ -84,10 +83,10 @@ pub(super) fn render(web: &ContextWeb, uri: Option<&str>, hops: usize) -> String
         format!("=== NEIGHBORHOOD ({hops} hops from target) ==="),
         format!(
             "Posts: {} of {} | Threads: {} of {}",
-            comma(nodes.len()),
-            comma(web.node_count()),
-            comma(included.len()),
-            comma(web.thread_count())
+            thousands(nodes.len()),
+            thousands(web.node_count()),
+            thousands(included.len()),
+            thousands(web.thread_count())
         ),
         String::new(),
     ];
@@ -140,7 +139,7 @@ fn render_subtree<'a>(
             author_name(post),
             short_time(&post.created_at)
         ));
-        for text_line in post.text.lines() {
+        for text_line in split_lines(&post.text) {
             lines.push(format!("{indent}  {text_line}"));
         }
 

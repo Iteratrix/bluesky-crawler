@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use indexmap::IndexMap;
 
+use super::split_lines;
 use crate::model::{ContextWeb, Post};
 
 fn cross_reference(
@@ -56,7 +57,7 @@ pub(super) fn render(web: &ContextWeb) -> String {
         };
 
         lines.push(format!("[{index}/{total}] {name}  {time}{context}"));
-        for text_line in post.text.lines() {
+        for text_line in split_lines(&post.text) {
             lines.push(format!("  {text_line}"));
         }
         lines.push(String::new());

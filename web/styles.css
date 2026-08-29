@@ -1,0 +1,107 @@
+:root {
+  --bg: #fafafa;
+  --fg: #1a1a1a;
+  --muted: #666;
+  --accent: #2563eb;
+  --error: #b91c1c;
+  --border: #d4d4d4;
+  --panel: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16181d;
+    --fg: #e6e6e6;
+    --muted: #9a9a9a;
+    --accent: #7aa2f7;
+    --error: #f87171;
+    --border: #3a3f4b;
+    --panel: #1f232b;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.5 system-ui, sans-serif;
+}
+
+main {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 2rem 1rem 4rem;
+}
+
+.tagline { color: var(--muted); }
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.row { display: flex; gap: 0.5rem; }
+.row input { flex: 1; min-width: 0; }
+
+input, select, button {
+  font: inherit;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem;
+}
+
+button {
+  background: var(--accent);
+  color: #fff;
+  border-color: transparent;
+  cursor: pointer;
+}
+button:disabled { opacity: 0.6; cursor: wait; }
+
+.options { margin-top: 0.75rem; color: var(--muted); }
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.5rem 1rem;
+  margin-top: 0.5rem;
+}
+.grid label { display: flex; flex-direction: column; font-size: 0.875rem; }
+
+.status { margin: 0.75rem 0 0; min-height: 1.5em; color: var(--muted); }
+.status.error { color: var(--error); }
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 1.5rem 0 0.5rem;
+}
+.toolbar label { display: inline-flex; align-items: center; gap: 0.35rem; }
+#lens-params { display: inline-flex; flex-wrap: wrap; gap: 0.75rem; }
+.toolbar button { background: var(--panel); color: var(--fg); border-color: var(--border); }
+
+pre {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.875rem;
+}
+
+footer {
+  margin-top: 3rem;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+a { color: var(--accent); }

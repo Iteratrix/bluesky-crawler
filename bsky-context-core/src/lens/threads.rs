@@ -1,24 +1,10 @@
-use core::fmt;
 use std::cmp::Reverse;
 
 use crate::model::{ContextWeb, Thread};
 
-use super::{author_name, truncate};
+use super::{author_name, thousands, truncate};
 
 /// Formats an integer with `,` between groups of three digits.
-pub(super) fn comma(value: impl fmt::Display) -> String {
-    let digits = value.to_string();
-    let leading = digits.len() % 3;
-    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
-    for (offset, digit) in digits.char_indices() {
-        if offset > 0 && offset % 3 == leading {
-            out.push(',');
-        }
-        out.push(digit);
-    }
-    out
-}
-
 struct ThreadInfo<'a> {
     size: usize,
     engagement: u64,
@@ -53,7 +39,7 @@ pub(super) fn render(web: &ContextWeb, top: usize) -> String {
     let mut lines = vec![
         format!(
             "=== THREADS ({} total, showing top {shown}) ===",
-            comma(web.thread_count())
+            thousands(web.thread_count())
         ),
         String::new(),
     ];
@@ -72,8 +58,8 @@ pub(super) fn render(web: &ContextWeb, top: usize) -> String {
         let rank = offset + 1;
         lines.push(format!(
             "#{rank:<3} {} posts | {} engagement | {name}",
-            comma(size),
-            comma(engagement)
+            thousands(size),
+            thousands(engagement)
         ));
         lines.push(format!("     {text}"));
         lines.push(format!("     {uri}"));
@@ -88,17 +74,7 @@ mod tests {
     use crate::lens::fixtures::{ROOT, test_web};
     use crate::model::ContextWeb;
 
-    use super::{comma, render};
-
-    #[test]
-    fn comma_groups_digits() {
-        assert_eq!(comma(0_u32), "0");
-        assert_eq!(comma(999_u32), "999");
-        assert_eq!(comma(1_000_u32), "1,000");
-        assert_eq!(comma(12_345_u32), "12,345");
-        assert_eq!(comma(123_456_u32), "123,456");
-        assert_eq!(comma(1_234_567_u64), "1,234,567");
-    }
+    use super::render;
 
     #[test]
     fn renders_both_threads_in_size_order() {

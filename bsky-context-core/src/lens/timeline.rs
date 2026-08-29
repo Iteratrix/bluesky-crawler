@@ -4,8 +4,7 @@ use indexmap::IndexMap;
 
 use crate::model::{ContextWeb, Post};
 
-use super::threads::comma;
-use super::{author_name, short_time};
+use super::{author_name, short_time, split_lines, thousands};
 
 /// Renders posts inside a time window, oldest first.
 pub(super) fn render(web: &ContextWeb, after: Option<&str>, before: Option<&str>) -> String {
@@ -40,7 +39,11 @@ pub(super) fn render(web: &ContextWeb, after: Option<&str>, before: Option<&str>
 
     let mut lines = vec![
         format!("=== TIMELINE ({window}) ==="),
-        format!("Posts: {} of {}", comma(total), comma(web.node_count())),
+        format!(
+            "Posts: {} of {}",
+            thousands(total),
+            thousands(web.node_count())
+        ),
         String::new(),
     ];
 
@@ -70,7 +73,7 @@ pub(super) fn render(web: &ContextWeb, after: Option<&str>, before: Option<&str>
             author_name(post),
             short_time(&post.created_at)
         ));
-        for text_line in post.text.lines() {
+        for text_line in split_lines(&post.text) {
             lines.push(format!("  {text_line}"));
         }
         lines.push(String::new());

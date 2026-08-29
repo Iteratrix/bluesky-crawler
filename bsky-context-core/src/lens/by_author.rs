@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use indexmap::IndexMap;
 
+use super::split_lines;
 use crate::model::{ContextWeb, Post, QuoteEdge};
 
 fn mention(nodes: &IndexMap<&str, &Post>, uri: Option<&String>, verb: &str) -> Option<String> {
@@ -94,7 +95,7 @@ pub(super) fn render(web: &ContextWeb) -> String {
                 .map_or_else(|| "?".to_owned(), usize::to_string);
             let time = super::short_time(&post.created_at);
             lines.push(format!("  [{index}] (#{global}) {time}{context}"));
-            for text_line in post.text.lines() {
+            for text_line in split_lines(&post.text) {
                 lines.push(format!("    {text_line}"));
             }
             lines.push(String::new());
