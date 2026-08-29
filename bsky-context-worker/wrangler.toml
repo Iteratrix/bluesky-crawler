@@ -20,6 +20,6 @@ CACHE_FRESH_SECS = "300"
 # Optional: cache crawled webs so lens switches are instant and a second
 # call continues where the first stopped. Create with
 # `wrangler kv namespace create WEBS` and paste the id.
-# [[kv_namespaces]]
-# binding = "WEBS"
-# id = ""
+[[kv_namespaces]]
+binding = "WEBS"
+id = "adf1e080daf2425888f93755e1955c9f"
