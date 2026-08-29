@@ -25,10 +25,6 @@ command -v bsky-context >/dev/null && echo "global" || echo "local"
 
 Use the appropriate prefix for all commands below. No login or credentials are needed.
 
-If a `bsky_context` MCP tool is available in this session, prefer it over the
-CLI: same lenses and parameters, no local storage, results cached server-side.
-To add it: `claude mcp add --transport http bsky-context https://bsky-context.mimirs.workers.dev/mcp`
-
 ## Fetching a conversation
 
 ```bash
@@ -92,13 +88,6 @@ bsky-context show <id> -l highlights -n 5
 ```bash
 bsky-context list
 ```
-
-## Without a shell
-
-If the `bsky_context` MCP tool is available (the same tool as a remote
-connector), use it instead: `bsky_context(post=<URL>, lens=<name>, ...)` with
-the same lens names and parameters as `show`. Results are cached briefly, so
-switching lenses on the same post is cheap; pass `fresh=true` to re-crawl.
 
 ## Typical workflow
 
