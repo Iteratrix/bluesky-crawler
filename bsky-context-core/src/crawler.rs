@@ -20,7 +20,7 @@ use crate::api::{
     ThreadResponse, ThreadViewPost,
 };
 use crate::model::{ContextWeb, FacetFeature, Post, QuoteEdge, Thread};
-use crate::uri::{AtUriParts, post_uri_from_link, split_at_uri};
+use crate::uri::{AtUriParts, is_post_uri, post_uri_from_link, split_at_uri};
 
 #[cfg(test)]
 mod mock;
@@ -630,13 +630,13 @@ impl CrawlState {
     /// through any link facet that points at another post.
     fn link_quotes(&mut self, post: &Post, root_uri: &str, depth: usize) {
         let embed_target = match &post.embed_uri {
-            Some(embed_uri) => {
+            Some(embed_uri) if is_post_uri(embed_uri) => {
                 let resolved = self.resolve_uri(embed_uri);
                 self.add_quote_edge(&resolved, post, root_uri);
                 self.follow_quote(&resolved, embed_uri, depth);
                 resolved
             }
-            None => String::new(),
+            Some(_) | None => String::new(),
         };
         for facet in &post.facets {
             for feature in &facet.features {

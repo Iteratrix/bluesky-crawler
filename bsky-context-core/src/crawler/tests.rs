@@ -488,6 +488,37 @@ mod crawler_mechanics {
     }
 
     #[test]
+    fn test_embeds_of_non_post_records_are_not_quotes() {
+        let feed = "at://did:plc:feedgen/app.bsky.feed.generator/for-you";
+        let fetch = MockFetch::new();
+        fetch.add_thread(
+            &at_uri("alice", "1"),
+            make_thread_view(make_post_view("alice", "1").embed(feed).build()).build(),
+        );
+
+        let result = run_with(
+            &fetch,
+            &at_uri("alice", "1"),
+            &CrawlOptions::default(),
+            None,
+        );
+
+        assert_eq!(fetch.thread_uris(), vec![at_uri("alice", "1")]);
+        assert!(result.web.quote_edges.is_empty());
+        assert_eq!(result.stop_reason, crate::crawler::StopReason::Complete);
+        assert_eq!(
+            result
+                .web
+                .get_post(&at_uri("alice", "1"))
+                .unwrap()
+                .embed_uri
+                .as_deref(),
+            Some(feed),
+            "the embed itself is still recorded on the post"
+        );
+    }
+
+    #[test]
     fn test_recrawl_resolves_handle_uris_from_existing_posts() {
         let existing = stored_web(
             &at_uri("alice", "1"),

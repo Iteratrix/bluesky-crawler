@@ -149,6 +149,25 @@ pub fn split_at_uri(uri: &str) -> Option<AtUriParts<'_>> {
     })
 }
 
+/// Returns whether an AT URI addresses a post record.
+///
+/// Embeds and links can reference feed generators, lists, and starter
+/// packs; only posts take part in a conversation graph.
+///
+/// # Examples
+///
+/// ```
+/// use bsky_context_core::uri::is_post_uri;
+///
+/// assert!(is_post_uri("at://did:plc:x/app.bsky.feed.post/abc"));
+/// assert!(!is_post_uri("at://did:plc:x/app.bsky.feed.generator/for-you"));
+/// assert!(!is_post_uri("https://bsky.app/profile/x/post/abc"));
+/// ```
+#[must_use]
+pub fn is_post_uri(uri: &str) -> bool {
+    split_at_uri(uri).is_some_and(|parts| parts.collection == POST_COLLECTION)
+}
+
 /// Returns the record key of an AT URI (its final path segment).
 ///
 /// # Examples
