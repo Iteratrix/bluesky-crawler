@@ -297,7 +297,12 @@ where
                 status: 429,
                 retry_after,
                 ..
-            } => Backoff::RateLimited((*retry_after).unwrap_or(BASE_DELAY * 2u32.pow(attempt))),
+            } => {
+                if attempt + 1 == MAX_RETRIES {
+                    return Err(error);
+                }
+                Backoff::RateLimited((*retry_after).unwrap_or(BASE_DELAY * 2u32.pow(attempt)))
+            }
             FetchError::Status { .. } | FetchError::Decode(_) => return Err(error),
             FetchError::Timeout | FetchError::Network(_) => {
                 if attempt + 1 == MAX_RETRIES {
@@ -415,10 +420,14 @@ impl CrawlState {
             concurrency: _,
         } = options;
         let mut old_edge_counts: HashMap<String, u32> = HashMap::new();
+        let mut handle_to_did: HashMap<String, String> = HashMap::new();
         let web = match existing {
             Some(mut web) => {
                 for QuoteEdge { source, .. } in &web.quote_edges {
                     *old_edge_counts.entry(source.clone()).or_default() += 1;
+                }
+                for post in web.iter_posts() {
+                    handle_to_did.insert(post.author.handle.clone(), post.author.did.clone());
                 }
                 web.crawled_at = clock.now_rfc3339();
                 web
@@ -432,7 +441,7 @@ impl CrawlState {
             visited_threads: HashSet::new(),
             visited_quotes: HashSet::new(),
             old_edge_counts,
-            handle_to_did: HashMap::new(),
+            handle_to_did,
             max_nodes: *max_nodes,
             max_depth: *max_depth,
             deadline: clock.elapsed() + *timeout,

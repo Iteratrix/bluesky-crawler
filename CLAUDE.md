@@ -9,7 +9,7 @@ Bluesky Context Web crawler — fetches the full DAG of replies + quote posts fo
 - Web app dev loop: `wasm-pack build bsky-context-web --target web --out-dir ../web/pkg`, then serve `web/` with any static server
 - Worker dev loop: `cd bsky-context-worker && npx wrangler dev`
 - Rust style: `rust-style` and `rustdoc` skills; WASM/Pages invariants: `wasm-pages-app` skill
-- The Python package under `src/` and `tests/` is the original implementation the Rust port was written from. It is kept only as a reference until the port is verified; the Rust CLI reads the same storage directory.
+- This is a Rust port of an earlier Python tool (removed from the tree once the port was verified; see git history); the storage format and lens output are compatible, and the CLI reads the same data directory.
 
 ## Architecture
 

@@ -488,6 +488,44 @@ mod crawler_mechanics {
     }
 
     #[test]
+    fn test_recrawl_resolves_handle_uris_from_existing_posts() {
+        let existing = stored_web(
+            &at_uri("alice", "1"),
+            vec![stored_post("alice", "1", "hi", 0)],
+        );
+        let handle_uri = "at://alice.bsky.social/app.bsky.feed.post/1";
+        let fetch = MockFetch::new();
+        fetch.add_thread(
+            &at_uri("alice", "1"),
+            make_thread_view(make_post_view("alice", "1").build()).build(),
+        );
+        fetch.add_thread(
+            &at_uri("bob", "2"),
+            make_thread_view(make_post_view("bob", "2").embed(handle_uri).build()).build(),
+        );
+
+        let result = run_with(
+            &fetch,
+            &at_uri("bob", "2"),
+            &CrawlOptions::default(),
+            Some(existing),
+        );
+
+        assert!(
+            !fetch.thread_uris().iter().any(|u| u == handle_uri),
+            "handle-based URI should resolve against the stored web: {:?}",
+            fetch.thread_uris()
+        );
+        let edge = result
+            .web
+            .quote_edges
+            .iter()
+            .find(|e| e.target == at_uri("bob", "2"))
+            .expect("quote edge");
+        assert_eq!(edge.source, at_uri("alice", "1"));
+    }
+
+    #[test]
     fn test_smart_refetch_skips_unchanged_quotes() {
         let mut existing = stored_web(
             &at_uri("alice", "1"),
@@ -962,6 +1000,28 @@ mod error_handling {
 
         assert_eq!(result.unwrap_err(), FetchError::Timeout);
         assert_eq!(calls.get(), 5);
+    }
+
+    #[test]
+    fn test_retry_does_not_sleep_after_the_final_rate_limit() {
+        let clock = FakeClock::new();
+        let gate = RateGate::default();
+        let calls = Cell::new(0_u32);
+
+        let result: Result<&str, FetchError> = block_on(retry(&clock, &gate, || {
+            calls.set(calls.get() + 1);
+            async {
+                Err(FetchError::Status {
+                    status: 429,
+                    message: "slow down".to_owned(),
+                    retry_after: None,
+                })
+            }
+        }));
+
+        assert!(result.unwrap_err().is_rate_limited());
+        assert_eq!(calls.get(), 5);
+        assert_eq!(clock.slept(), Duration::from_secs(1 + 2 + 4 + 8));
     }
 
     #[test]

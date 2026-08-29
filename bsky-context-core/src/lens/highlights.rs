@@ -5,7 +5,7 @@ use indexmap::IndexMap;
 
 use crate::model::{ContextWeb, Post, QuoteEdge};
 
-use super::{author_name, short_time, thousands, truncate};
+use super::{author_name, counted, short_time, thousands, truncate};
 
 struct AuthorTotal {
     name: String,
@@ -42,21 +42,22 @@ fn most_quoted(web: &ContextWeb, top: usize, lines: &mut Vec<String>) {
     ranked.sort_by_key(|(_, count)| Reverse(*count));
 
     lines.push("--- Most Quoted ---".to_owned());
-    for (offset, (uri, count)) in ranked.iter().take(top).enumerate() {
-        let Some(post) = web.get_post(uri) else {
-            continue;
-        };
+    let present = ranked
+        .iter()
+        .filter_map(|(uri, count)| web.get_post(uri).map(|post| (post, *count)));
+    for (offset, (post, count)) in present.take(top).enumerate() {
         let rank = offset + 1;
         lines.push(format!(
-            "  {rank}. [quoted {count} times] {}  {}",
+            "  {rank}. [quoted {}] {}  {}",
+            counted(count, "time", "times"),
             author_name(post),
             short_time(&post.created_at)
         ));
         lines.push(format!("     {}", truncate(&post.text, 80)));
         lines.push(format!(
-            "     ({} likes, {} reposts)",
-            thousands(post.like_count),
-            thousands(post.repost_count)
+            "     ({}, {})",
+            counted(post.like_count, "like", "likes"),
+            counted(post.repost_count, "repost", "reposts")
         ));
         lines.push(String::new());
     }
@@ -84,13 +85,14 @@ fn most_replied(web: &ContextWeb, top: usize, lines: &mut Vec<String>) {
     ranked.sort_by_key(|(_, count)| Reverse(*count));
 
     lines.push("--- Most Replied ---".to_owned());
-    for (offset, (uri, count)) in ranked.iter().take(top).enumerate() {
-        let Some(post) = web.get_post(uri) else {
-            continue;
-        };
+    let present = ranked
+        .iter()
+        .filter_map(|(uri, count)| web.get_post(uri).map(|post| (post, *count)));
+    for (offset, (post, count)) in present.take(top).enumerate() {
         let rank = offset + 1;
         lines.push(format!(
-            "  {rank}. [{count} replies in web] {}  {}",
+            "  {rank}. [{} in web] {}  {}",
+            counted(count, "reply", "replies"),
             author_name(post),
             short_time(&post.created_at)
         ));
@@ -107,10 +109,10 @@ fn highest_engagement(web: &ContextWeb, top: usize, lines: &mut Vec<String>) {
     for (offset, post) in ranked.iter().take(top).enumerate() {
         let rank = offset + 1;
         lines.push(format!(
-            "  {rank}. [{} likes, {} reposts, {} quotes] {}",
-            thousands(post.like_count),
-            thousands(post.repost_count),
-            thousands(post.quote_count),
+            "  {rank}. [{}, {}, {}] {}",
+            counted(post.like_count, "like", "likes"),
+            counted(post.repost_count, "repost", "reposts"),
+            counted(post.quote_count, "quote", "quotes"),
             author_name(post)
         ));
         lines.push(format!("     {}", truncate(&post.text, 80)));
@@ -145,6 +147,22 @@ fn main_characters(web: &ContextWeb, top: usize, lines: &mut Vec<String>) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn ranks_stay_contiguous_when_a_quoted_post_is_missing() {
+        let mut web = super::super::fixtures::test_web();
+        for n in 0..2 {
+            web.quote_edges.push(crate::model::QuoteEdge {
+                source: "at://did:plc:gone/app.bsky.feed.post/9".into(),
+                target: format!("at://did:plc:x/app.bsky.feed.post/{n}"),
+                source_thread: "at://did:plc:gone/app.bsky.feed.post/9".into(),
+                target_thread: "at://did:plc:x/app.bsky.feed.post/0".into(),
+            });
+        }
+        let out = super::render(&web, 10);
+        assert!(out.contains("  1. [quoted 1 time] Alice"), "{out}");
+        assert!(!out.contains("  2. [quoted"), "{out}");
+    }
+
     use crate::lens::fixtures::test_web;
     use crate::model::ContextWeb;
 
@@ -158,19 +176,19 @@ mod tests {
             "=== HIGHLIGHTS ===\n\
              \n\
              --- Most Quoted ---\n\
-             \x20 1. [quoted 1 times] Alice (@alice.bsky.social)  2026-01-15 10:00\n\
+             \x20 1. [quoted 1 time] Alice (@alice.bsky.social)  2026-01-15 10:00\n\
              \x20    Original post\n\
              \x20    (10 likes, 3 reposts)\n\
              \n\
              --- Most Replied ---\n\
-             \x20 1. [1 replies in web] Alice (@alice.bsky.social)  2026-01-15 10:00\n\
+             \x20 1. [1 reply in web] Alice (@alice.bsky.social)  2026-01-15 10:00\n\
              \x20    Original post\n\
              \n\
-             \x20 2. [1 replies in web] @carol.bsky.social  2026-01-15 10:08\n\
+             \x20 2. [1 reply in web] @carol.bsky.social  2026-01-15 10:08\n\
              \x20    Quote post\n\
              \n\
              --- Highest Engagement ---\n\
-             \x20 1. [10 likes, 3 reposts, 1 quotes] Alice (@alice.bsky.social)\n\
+             \x20 1. [10 likes, 3 reposts, 1 quote] Alice (@alice.bsky.social)\n\
              \x20    Original post\n\
              \n\
              \x20 2. [5 likes, 0 reposts, 0 quotes] @carol.bsky.social\n\
@@ -179,7 +197,7 @@ mod tests {
              \x20 3. [2 likes, 0 reposts, 0 quotes] Bob (@bob.bsky.social)\n\
              \x20    Direct reply\n\
              \n\
-             \x20 4. [1 likes, 0 reposts, 0 quotes] Bob (@bob.bsky.social)\n\
+             \x20 4. [1 like, 0 reposts, 0 quotes] Bob (@bob.bsky.social)\n\
              \x20    Reply to quote\n\
              \n\
              --- Main Characters (by total engagement) ---\n\
@@ -193,9 +211,9 @@ mod tests {
     fn section_headers_present() {
         let out = render(&test_web(), 10);
         assert!(out.contains("Most Quoted"));
-        assert!(out.contains("quoted 1 times"));
+        assert!(out.contains("quoted 1 time"));
         assert!(out.contains("Most Replied"));
-        assert!(out.contains("1 replies in web"));
+        assert!(out.contains("1 reply in web"));
         assert!(out.contains("Highest Engagement"));
         assert!(out.contains("alice.bsky.social"));
         assert!(out.contains("Main Characters"));
@@ -209,7 +227,7 @@ mod tests {
         assert!(out.contains("--- Highest Engagement ---"));
         assert!(out.contains("--- Main Characters (by total engagement) ---"));
         assert!(!out.contains("  2. "));
-        assert!(out.contains("  1. [1 replies in web] Alice (@alice.bsky.social)"));
+        assert!(out.contains("  1. [1 reply in web] Alice (@alice.bsky.social)"));
     }
 
     #[test]
@@ -229,8 +247,11 @@ mod tests {
     #[test]
     fn top_larger_than_web_shows_everything() {
         let out = render(&test_web(), 99);
-        assert_eq!(out.matches(" quotes] ").count(), 4);
-        assert!(out.contains("  4. [1 likes, 0 reposts, 0 quotes] Bob (@bob.bsky.social)"));
+        assert_eq!(
+            out.matches(" quotes] ").count() + out.matches(" quote] ").count(),
+            4
+        );
+        assert!(out.contains("  4. [1 like, 0 reposts, 0 quotes] Bob (@bob.bsky.social)"));
     }
 
     #[test]

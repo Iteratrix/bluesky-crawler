@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use indexmap::IndexMap;
 
-use super::split_lines;
+use super::{counted, split_lines};
 use crate::model::{ContextWeb, Post, QuoteEdge};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,13 +65,13 @@ fn push_post(lines: &mut Vec<String>, post: &Post, depth: usize, kind: Option<Ed
     if *like_count > 0 || *repost_count > 0 || *quote_count > 0 {
         let mut stats: Vec<String> = Vec::new();
         if *like_count > 0 {
-            stats.push(format!("{like_count} likes"));
+            stats.push(counted(*like_count, "like", "likes"));
         }
         if *repost_count > 0 {
-            stats.push(format!("{repost_count} reposts"));
+            stats.push(counted(*repost_count, "repost", "reposts"));
         }
         if *quote_count > 0 {
-            stats.push(format!("{quote_count} quotes"));
+            stats.push(counted(*quote_count, "quote", "quotes"));
         }
         lines.push(format!("{indent}  ({})", stats.join(", ")));
     }
@@ -163,7 +163,7 @@ mod tests {
     const EXPECTED: &str = "\
 [root] Alice (@alice.bsky.social)  2026-01-15 10:00
   Original post
-  (10 likes, 3 reposts, 1 quotes)
+  (10 likes, 3 reposts, 1 quote)
 
   [reply] Bob (@bob.bsky.social)  2026-01-15 10:05
     Direct reply
@@ -175,7 +175,7 @@ mod tests {
 
     [reply] Bob (@bob.bsky.social)  2026-01-15 10:12
       Reply to quote
-      (1 likes)";
+      (1 like)";
 
     #[test]
     fn matches_reference_rendering() {
@@ -331,7 +331,7 @@ mod tests {
             "\
 [root] Alice (@alice.bsky.social)  2026-01-15 10:00
   Original post
-  (10 likes, 3 reposts, 1 quotes)
+  (10 likes, 3 reposts, 1 quote)
 
   [reply] Bob (@bob.bsky.social)  2026-01-15 10:05
     Direct reply
@@ -339,7 +339,7 @@ mod tests {
 
     [quote] Bob (@bob.bsky.social)  2026-01-15 10:12
       Reply to quote
-      (1 likes)
+      (1 like)
 
   [quote] @carol.bsky.social  2026-01-15 10:08
     Quote post

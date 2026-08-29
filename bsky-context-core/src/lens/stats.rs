@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use az::Az;
 use indexmap::IndexMap;
 
-use super::thousands;
+use super::{counted, thousands};
 use crate::model::{ContextWeb, Post, Thread};
 
 fn percent(count: usize, total: usize) -> f64 {
@@ -42,12 +42,12 @@ fn thread_size_lines(web: &ContextWeb) -> Vec<String> {
     for (label, count) in buckets {
         let share = percent(count, sizes.len());
         lines.push(format!(
-            "  {label:15} {} threads ({share:.1}%)",
-            thousands(count)
+            "  {label:15} {} ({share:.1}%)",
+            counted(count, "thread", "threads")
         ));
     }
     if let Some(largest) = sizes.iter().max() {
-        lines.push(format!("  Largest: {} posts", thousands(largest)));
+        lines.push(format!("  Largest: {}", counted(*largest, "post", "posts")));
     }
     lines
 }
@@ -66,9 +66,9 @@ fn top_author_lines(web: &ContextWeb) -> Vec<String> {
     let mut lines = vec!["Top authors by post count:".to_owned()];
     for (rank, (name, count)) in ranked.iter().take(10).enumerate() {
         lines.push(format!(
-            "  {:2}. {name} - {} posts",
+            "  {:2}. {name} - {}",
             rank + 1,
-            thousands(count)
+            counted(*count, "post", "posts")
         ));
     }
     lines
@@ -109,10 +109,16 @@ fn quote_hop_lines(web: &ContextWeb) -> Vec<String> {
 
     let mut lines = vec!["Quote-hop depth from root thread:".to_owned()];
     for (depth, count) in &depth_posts {
-        lines.push(format!("  Hop {depth}: {} posts", thousands(count)));
+        lines.push(format!(
+            "  Hop {depth}: {}",
+            counted(*count, "post", "posts")
+        ));
     }
     if unreachable > 0 {
-        lines.push(format!("  Unreachable: {} posts", thousands(unreachable)));
+        lines.push(format!(
+            "  Unreachable: {}",
+            counted(unreachable, "post", "posts")
+        ));
     }
     lines
 }
@@ -186,8 +192,8 @@ Thread sizes:
 
 Top authors by post count:
    1. Bob (@bob.bsky.social) - 2 posts
-   2. Alice (@alice.bsky.social) - 1 posts
-   3. @carol.bsky.social - 1 posts
+   2. Alice (@alice.bsky.social) - 1 post
+   3. @carol.bsky.social - 1 post
 
 Top posts by engagement:
    1. [14 engagement] Alice (@alice.bsky.social)
@@ -282,9 +288,9 @@ Top posts by engagement:"
         let out = render(&web);
         assert!(out.contains("Posts: 5 across 3 threads"));
         assert!(out.contains("Time span: 2026-01-15 09:00 to 2026-01-15 10:12"));
-        assert!(out.contains("  1 post          1 threads (33.3%)"));
+        assert!(out.contains("  1 post          1 thread (33.3%)"));
         assert!(out.contains("  2-10 posts      2 threads (66.7%)"));
-        assert!(out.ends_with("  Hop 0: 2 posts\n  Hop 1: 2 posts\n  Unreachable: 1 posts"));
+        assert!(out.ends_with("  Hop 0: 2 posts\n  Hop 1: 2 posts\n  Unreachable: 1 post"));
     }
 
     #[test]

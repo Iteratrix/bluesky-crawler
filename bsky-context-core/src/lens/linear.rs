@@ -13,10 +13,8 @@ fn cross_reference(
 ) -> Option<String> {
     let uri = uri?;
     let index = uri_to_index.get(uri.as_str())?;
-    let handle = nodes
-        .get(uri.as_str())
-        .map_or_else(|| "?".to_owned(), |post| format!("@{}", post.author.handle));
-    Some(format!("{verb} {handle} #{index}"))
+    let post = nodes.get(uri.as_str())?;
+    Some(format!("{verb} @{} #{index}", post.author.handle))
 }
 
 /// Renders a chronological narrative: every post numbered, annotated with

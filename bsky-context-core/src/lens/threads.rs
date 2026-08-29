@@ -2,7 +2,7 @@ use std::cmp::Reverse;
 
 use crate::model::{ContextWeb, Thread};
 
-use super::{author_name, thousands, truncate};
+use super::{author_name, counted, thousands, truncate};
 
 /// Formats an integer with `,` between groups of three digits.
 struct ThreadInfo<'a> {
@@ -39,7 +39,7 @@ pub(super) fn render(web: &ContextWeb, top: usize) -> String {
     let mut lines = vec![
         format!(
             "=== THREADS ({} total, showing top {shown}) ===",
-            thousands(web.thread_count())
+            thousands(infos.len())
         ),
         String::new(),
     ];
@@ -57,8 +57,8 @@ pub(super) fn render(web: &ContextWeb, top: usize) -> String {
     {
         let rank = offset + 1;
         lines.push(format!(
-            "#{rank:<3} {} posts | {} engagement | {name}",
-            thousands(size),
+            "#{rank:<3} {} | {} engagement | {name}",
+            counted(*size, "post", "posts"),
             thousands(engagement)
         ));
         lines.push(format!("     {text}"));
@@ -71,6 +71,19 @@ pub(super) fn render(web: &ContextWeb, top: usize) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn header_counts_only_threads_with_posts() {
+        let mut web = super::super::fixtures::test_web();
+        web.add_thread(crate::model::Thread::new(
+            "at://did:plc:z/app.bsky.feed.post/9",
+        ));
+        let out = super::render(&web, 20);
+        assert!(
+            out.starts_with("=== THREADS (2 total, showing top 2) ==="),
+            "{out}"
+        );
+    }
+
     use crate::lens::fixtures::{ROOT, test_web};
     use crate::model::ContextWeb;
 
@@ -130,7 +143,7 @@ mod tests {
         web.add_thread(thread);
         let out = render(&web, 20);
         assert!(out.contains("#1   2 posts | 6 engagement | @carol.bsky.social"));
-        assert!(out.contains("#2   1 posts | 2 engagement | Bob (@bob.bsky.social)"));
+        assert!(out.contains("#2   1 post | 2 engagement | Bob (@bob.bsky.social)"));
         assert!(out.contains("     Direct reply"));
         assert!(out.contains("     at://did:plc:b/app.bsky.feed.post/2"));
     }

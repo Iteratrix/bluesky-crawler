@@ -55,11 +55,9 @@ pub(super) fn render(web: &ContextWeb) -> String {
         if root_did == Some(*did) {
             tags.push("thread starter");
         }
-        if posts
-            .iter()
-            .any(|post| quote_targets.contains(post.uri.as_str()))
-        {
-            tags.push("via quote");
+        let first_post = posts.iter().min_by_key(|post| &post.created_at);
+        if first_post.is_some_and(|post| quote_targets.contains(post.uri.as_str())) {
+            tags.push("joined via quote");
         }
         let tags = if tags.is_empty() {
             String::new()
@@ -90,9 +88,7 @@ pub(super) fn render(web: &ContextWeb) -> String {
                 format!("  [{}]", context.join(", "))
             };
 
-            let global = uri_to_index
-                .get(post.uri.as_str())
-                .map_or_else(|| "?".to_owned(), usize::to_string);
+            let global = uri_to_index[post.uri.as_str()];
             let time = super::short_time(&post.created_at);
             lines.push(format!("  [{index}] (#{global}) {time}{context}"));
             for text_line in split_lines(&post.text) {
@@ -107,6 +103,77 @@ pub(super) fn render(web: &ContextWeb) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn joined_via_quote_marks_authors_whose_first_post_quotes() {
+        use crate::model::{Post, QuoteEdge, Thread};
+        let mut web = super::super::fixtures::test_web();
+        let bob_quote = "at://did:plc:b/app.bsky.feed.post/7";
+        let dave_quote = "at://did:plc:d/app.bsky.feed.post/8";
+        let dave_reply = "at://did:plc:d/app.bsky.feed.post/9";
+        let mut thread = Thread::new(bob_quote);
+        thread.posts.insert(
+            bob_quote.into(),
+            Post {
+                embed_uri: Some(super::super::fixtures::ROOT.into()),
+                ..Post::new(
+                    bob_quote,
+                    "c7",
+                    super::super::fixtures::author("did:plc:b", "bob.bsky.social", "Bob"),
+                    "Bob quotes later",
+                    "2026-01-15T11:00:00Z",
+                )
+            },
+        );
+        web.add_thread(thread);
+        let mut thread = Thread::new(dave_quote);
+        thread.posts.insert(
+            dave_reply.into(),
+            Post {
+                reply_parent: Some(dave_quote.into()),
+                reply_root: Some(dave_quote.into()),
+                ..Post::new(
+                    dave_reply,
+                    "c9",
+                    super::super::fixtures::author("did:plc:d", "dave.bsky.social", "Dave"),
+                    "Dave replies to himself",
+                    "2026-01-15T10:30:00Z",
+                )
+            },
+        );
+        thread.posts.insert(
+            dave_quote.into(),
+            Post {
+                embed_uri: Some(super::super::fixtures::ROOT.into()),
+                ..Post::new(
+                    dave_quote,
+                    "c8",
+                    super::super::fixtures::author("did:plc:d", "dave.bsky.social", "Dave"),
+                    "Dave quotes first",
+                    "2026-01-15T10:20:00Z",
+                )
+            },
+        );
+        web.add_thread(thread);
+        for target in [bob_quote, dave_quote] {
+            web.quote_edges.push(QuoteEdge {
+                source: super::super::fixtures::ROOT.into(),
+                target: target.into(),
+                source_thread: super::super::fixtures::ROOT.into(),
+                target_thread: target.into(),
+            });
+        }
+        let out = super::render(&web);
+        assert!(out.contains("Bob (@bob.bsky.social) - 3 posts\n"), "{out}");
+        assert!(
+            out.contains("Dave (@dave.bsky.social) - 2 posts  [joined via quote]"),
+            "{out}"
+        );
+        assert!(
+            out.contains("@carol.bsky.social - 1 post  [joined via quote]"),
+            "{out}"
+        );
+    }
+
     use super::super::fixtures::{QUOTE, REPLY, ROOT, author, test_web};
     use super::render;
     use crate::model::{ContextWeb, Post, Thread};
@@ -115,7 +182,7 @@ mod tests {
 === PARTICIPANTS (3) ===
   Alice (@alice.bsky.social) - 1 post  [thread starter]
   Bob (@bob.bsky.social) - 2 posts
-  @carol.bsky.social - 1 post  [via quote]
+  @carol.bsky.social - 1 post  [joined via quote]
 
 === Alice (@alice.bsky.social) ===
   [1] (#1) 2026-01-15 10:00
@@ -177,7 +244,7 @@ mod tests {
             vec![
                 "  Bob (@bob.bsky.social) - 2 posts",
                 "  Alice (@alice.bsky.social) - 1 post  [thread starter]",
-                "  @carol.bsky.social - 1 post  [via quote]",
+                "  @carol.bsky.social - 1 post  [joined via quote]",
             ]
         );
     }
@@ -216,17 +283,31 @@ mod tests {
     #[test]
     fn quoting_author_is_tagged_via_quote() {
         let out = render(&test_web());
-        assert!(out.contains("@carol.bsky.social - 1 post  [via quote]"));
+        assert!(out.contains("@carol.bsky.social - 1 post  [joined via quote]"));
         assert!(!out.contains("Alice (@alice.bsky.social) - 1 post  [thread starter, via quote]"));
     }
 
     #[test]
-    fn both_tags_combine_for_a_self_quoting_root_author() {
+    fn self_quoting_root_author_is_only_the_thread_starter() {
         let mut web = test_web();
         web.get_post_mut(QUOTE).unwrap().author = author("did:plc:a", "alice.bsky.social", "Alice");
         let out = render(&web);
-        assert!(out.contains("Alice (@alice.bsky.social) - 2 posts  [thread starter, via quote]"));
+        assert!(out.contains("Alice (@alice.bsky.social) - 2 posts  [thread starter]\n"));
         assert!(out.contains("PARTICIPANTS (2)"));
+    }
+
+    #[test]
+    fn both_tags_combine_when_the_root_author_quoted_first() {
+        let mut web = test_web();
+        let quote = web.get_post_mut(QUOTE).unwrap();
+        quote.author = author("did:plc:a", "alice.bsky.social", "Alice");
+        quote.created_at = "2026-01-15T09:00:00Z".into();
+        let out = render(&web);
+        assert!(
+            out.contains(
+                "Alice (@alice.bsky.social) - 2 posts  [thread starter, joined via quote]"
+            )
+        );
     }
 
     #[test]

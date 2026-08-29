@@ -55,7 +55,7 @@ bsky-context list
 
 `fetch` prints a web ID; `show` accepts that ID or any unique prefix. Re-running `fetch` on a known post loads the stored web and merges in what's new: posts whose quote count hasn't changed are skipped for quote-fetching, so updates are fast. `--fresh` discards the stored version (use it if a quote may have been deleted and recreated, which keeps the count the same). `-c` sets concurrent API requests; higher is faster but risks rate limits.
 
-Webs are stored as JSON in `~/.local/share/bsky-context/webs/` (honors `XDG_DATA_HOME`). The format is stable, human-readable, and shared with the original Python implementation, so existing webs load as-is.
+Webs are stored as JSON in `~/.local/share/bsky-context/webs/` (honors `XDG_DATA_HOME`). The format is stable and human-readable, and unchanged from the original Python implementation, so webs it saved load as-is.
 
 ## Web app
 
@@ -109,7 +109,6 @@ bsky-context-core/     model, uri, api (wire types + Fetch/Clock traits), crawle
 bsky-context-cli/      the bsky-context binary
 bsky-context-web/      wasm-bindgen bridge      web/   framework-free page, build.mjs, service worker
 bsky-context-worker/   Cloudflare Worker        .claude/skills/bsky-context/   Claude Code skill
-src/, tests/           the original Python implementation, kept as the reference the port was verified against
 ```
 
 ```bash

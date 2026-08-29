@@ -2,7 +2,7 @@ use indexmap::IndexMap;
 
 use crate::model::{ContextWeb, Post, Thread};
 
-use super::{author_name, short_time, thousands, truncate};
+use super::{author_name, counted, short_time, truncate};
 
 /// Filters posts by a text query and/or an author handle substring.
 pub(super) fn render(web: &ContextWeb, query: Option<&str>, author: Option<&str>) -> String {
@@ -39,10 +39,10 @@ pub(super) fn render(web: &ContextWeb, query: Option<&str>, author: Option<&str>
     let mut lines = vec![
         "=== SEARCH RESULTS ===".to_owned(),
         format!(
-            "{} | {} matches in {} posts",
+            "{} | {} in {}",
             filters.join(" | "),
-            thousands(matches.len()),
-            thousands(web.node_count())
+            counted(matches.len(), "match", "matches"),
+            counted(web.node_count(), "post", "posts")
         ),
         String::new(),
     ];
@@ -58,8 +58,8 @@ pub(super) fn render(web: &ContextWeb, query: Option<&str>, author: Option<&str>
             short_time(&post.created_at)
         ));
         lines.push(format!(
-            "    Thread: {thread_root} ({} posts)",
-            thousands(thread_size)
+            "    Thread: {thread_root} ({})",
+            counted(thread_size, "post", "posts")
         ));
 
         let mut context: Vec<String> = Vec::new();
@@ -77,10 +77,10 @@ pub(super) fn render(web: &ContextWeb, query: Option<&str>, author: Option<&str>
         lines.push(format!("    {}", truncate(&post.text, 120)));
         if post.engagement() > 0 {
             lines.push(format!(
-                "    ({} likes, {} reposts, {} quotes)",
-                thousands(post.like_count),
-                thousands(post.repost_count),
-                thousands(post.quote_count)
+                "    ({}, {}, {})",
+                counted(post.like_count, "like", "likes"),
+                counted(post.repost_count, "repost", "reposts"),
+                counted(post.quote_count, "quote", "quotes")
             ));
         }
         lines.push(String::new());
@@ -119,7 +119,7 @@ mod tests {
              \x20   Thread: at://did:plc:c/app.bsky.feed.post/3 (2 posts)\n\
              \x20   [replying to @carol.bsky.social]\n\
              \x20   Reply to quote\n\
-             \x20   (1 likes, 0 reposts, 0 quotes)"
+             \x20   (1 like, 0 reposts, 0 quotes)"
         );
     }
 
@@ -129,7 +129,7 @@ mod tests {
         assert_eq!(
             out,
             "=== SEARCH RESULTS ===\n\
-             author: carol | 1 matches in 4 posts\n\
+             author: carol | 1 match in 4 posts\n\
              \n\
              [1] @carol.bsky.social  2026-01-15 10:08\n\
              \x20   Thread: at://did:plc:c/app.bsky.feed.post/3 (2 posts)\n\
@@ -171,11 +171,11 @@ mod tests {
     #[test]
     fn matching_is_case_insensitive() {
         let out = render(&test_web(), Some("ORIGINAL"), None);
-        assert!(out.contains("1 matches"));
+        assert!(out.contains("1 match"));
         assert!(out.contains("Original post"));
 
         let out = render(&test_web(), None, Some("CAROL"));
-        assert!(out.contains("1 matches"));
+        assert!(out.contains("1 match"));
         assert!(out.contains("@carol.bsky.social"));
     }
 
@@ -196,7 +196,7 @@ mod tests {
         assert_eq!(
             out,
             "=== SEARCH RESULTS ===\n\
-             query: \"Original\" | 1 matches in 4 posts\n\
+             query: \"Original\" | 1 match in 4 posts\n\
              \n\
              [1] Alice (@alice.bsky.social)  2026-01-15 10:00\n\
              \x20   Thread: at://did:plc:a/app.bsky.feed.post/1 (2 posts)\n\

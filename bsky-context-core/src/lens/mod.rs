@@ -371,6 +371,20 @@ pub fn split_lines(text: &str) -> Vec<&str> {
     lines
 }
 
+/// Formats a count with its noun, singular only when the count is one.
+#[must_use]
+pub fn counted<N>(count: N, singular: &str, plural: &str) -> String
+where
+    N: Copy + fmt::Display + PartialEq + From<u8>,
+{
+    let noun = if count == N::from(1) {
+        singular
+    } else {
+        plural
+    };
+    format!("{} {noun}", thousands(count))
+}
+
 /// Formats a number with thousands separators, like Python's `{n:,}`.
 #[must_use]
 pub fn thousands(value: impl fmt::Display) -> String {
@@ -665,6 +679,14 @@ mod tests {
         assert_eq!(split_lines("a\u{2028}\nb"), vec!["a", "", "b"]);
         assert_eq!(split_lines("a\u{85}b\x0cc"), vec!["a", "b", "c"]);
         assert_eq!(split_lines("\n"), vec![""]);
+    }
+
+    #[test]
+    fn counted_pluralizes() {
+        assert_eq!(counted(1_u32, "like", "likes"), "1 like");
+        assert_eq!(counted(0_u32, "like", "likes"), "0 likes");
+        assert_eq!(counted(2_usize, "reply", "replies"), "2 replies");
+        assert_eq!(counted(1_500_u64, "post", "posts"), "1,500 posts");
     }
 
     #[test]

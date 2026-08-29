@@ -4,7 +4,7 @@ use indexmap::IndexMap;
 
 use crate::model::{ContextWeb, Post, QuoteEdge};
 
-use super::{author_name, short_time, split_lines, thousands};
+use super::{author_name, counted, short_time, split_lines, thousands};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Edge {
@@ -85,7 +85,12 @@ pub(super) fn render(web: &ContextWeb, uri: Option<&str>, hops: usize) -> String
             "Posts: {} of {} | Threads: {} of {}",
             thousands(nodes.len()),
             thousands(web.node_count()),
-            thousands(included.len()),
+            thousands(
+                included
+                    .iter()
+                    .filter(|root| web.thread(root).is_some())
+                    .count()
+            ),
             thousands(web.thread_count())
         ),
         String::new(),
@@ -145,13 +150,13 @@ fn render_subtree<'a>(
 
         let mut stats: Vec<String> = Vec::new();
         if post.like_count > 0 {
-            stats.push(format!("{} likes", post.like_count));
+            stats.push(counted(post.like_count, "like", "likes"));
         }
         if post.repost_count > 0 {
-            stats.push(format!("{} reposts", post.repost_count));
+            stats.push(counted(post.repost_count, "repost", "reposts"));
         }
         if post.quote_count > 0 {
-            stats.push(format!("{} quotes", post.quote_count));
+            stats.push(counted(post.quote_count, "quote", "quotes"));
         }
         if !stats.is_empty() {
             lines.push(format!("{indent}  ({})", stats.join(", ")));
@@ -172,6 +177,19 @@ fn render_subtree<'a>(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn header_counts_only_crawled_threads() {
+        let mut web = super::super::fixtures::test_web();
+        web.quote_edges.push(crate::model::QuoteEdge {
+            source: super::super::fixtures::ROOT.into(),
+            target: "at://did:plc:z/app.bsky.feed.post/9".into(),
+            source_thread: super::super::fixtures::ROOT.into(),
+            target_thread: "at://did:plc:z/app.bsky.feed.post/9".into(),
+        });
+        let out = super::render(&web, None, 2);
+        assert!(out.contains("Threads: 2 of 2"), "{out}");
+    }
+
     use crate::lens::fixtures::{QUOTE, ROOT, author, test_web};
     use crate::model::{ContextWeb, Post};
 
@@ -187,7 +205,7 @@ mod tests {
              \n\
              [root] Alice (@alice.bsky.social)  2026-01-15 10:00\n\
              \x20 Original post\n\
-             \x20 (10 likes, 3 reposts, 1 quotes)\n\
+             \x20 (10 likes, 3 reposts, 1 quote)\n\
              \n\
              \x20 [reply] Bob (@bob.bsky.social)  2026-01-15 10:05\n\
              \x20   Direct reply\n\
@@ -207,7 +225,7 @@ mod tests {
              \n\
              [root] Alice (@alice.bsky.social)  2026-01-15 10:00\n\
              \x20 Original post\n\
-             \x20 (10 likes, 3 reposts, 1 quotes)\n\
+             \x20 (10 likes, 3 reposts, 1 quote)\n\
              \n\
              \x20 [reply] Bob (@bob.bsky.social)  2026-01-15 10:05\n\
              \x20   Direct reply\n\
@@ -219,7 +237,7 @@ mod tests {
              \n\
              \x20   [reply] Bob (@bob.bsky.social)  2026-01-15 10:12\n\
              \x20     Reply to quote\n\
-             \x20     (1 likes)"
+             \x20     (1 like)"
         );
     }
 
@@ -261,7 +279,7 @@ mod tests {
              \n\
              \x20 [reply] Bob (@bob.bsky.social)  2026-01-15 10:12\n\
              \x20   Reply to quote\n\
-             \x20   (1 likes)"
+             \x20   (1 like)"
         );
         assert!(!out.contains("Original post"));
     }
@@ -304,7 +322,7 @@ mod tests {
              \n\
              [root] Alice (@alice.bsky.social)  2026-01-15 10:00\n\
              \x20 Original post\n\
-             \x20 (10 likes, 3 reposts, 1 quotes)\n\
+             \x20 (10 likes, 3 reposts, 1 quote)\n\
              \n\
              \x20 [reply] Bob (@bob.bsky.social)  2026-01-15 10:05\n\
              \x20   Direct reply\n\
