@@ -145,9 +145,7 @@ pub fn list_webs(dir: &Path) -> io::Result<Vec<WebSummary>> {
             node_count,
             edge_count,
             thread_count,
-        } = serde_json::from_str::<MetaOnly>(&json)
-            .map(|m| m.meta)
-            .unwrap_or_default();
+        } = serde_json::from_str::<MetaOnly>(&json).map_or_default(|m| m.meta);
         result.push(WebSummary {
             id,
             root_uri: root_uri.unwrap_or_else(|| "?".to_owned()),
