@@ -1,0 +1,14 @@
+# cargo-deny configuration. Only the advisories check is configured:
+# `cargo deny check advisories` (RustSec advisories and yanked crates).
+
+[advisories]
+yanked = "deny"
+# Report unmaintained and unsound advisories for every crate in the
+# lockfile, not only direct dependencies (cargo-deny's default scope).
+unmaintained = "all"
+unsound = "all"
+ignore = [
+    # chrono is unmaintained (no vulnerability reported). Moving to jiff is a
+    # migration, not a bump. Remove this entry once nothing depends on chrono.
+    "RUSTSEC-2026-0543",
+]
