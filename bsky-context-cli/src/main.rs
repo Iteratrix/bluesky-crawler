@@ -220,8 +220,7 @@ fn run_fetch(args: FetchArgs) -> anyhow::Result<()> {
     let path = save_web(&dir, &web).context("saving web")?;
     let id = path
         .file_stem()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_default();
+        .map_or_default(|s| s.to_string_lossy().into_owned());
     eprintln!("  Saved: {id}");
     emit(&format!("{id}\n"))
 }
